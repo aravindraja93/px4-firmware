@@ -42,21 +42,15 @@
 namespace uORB
 {
 
-bool Subscription::subscribe()
+bool Subscription::subscribe(bool create)
 {
-	// check if already subscribed
-	if (_node != nullptr) {
+	if (orb_advert_valid(_node)) {
 		return true;
 	}
 
-	if (_orb_id != ORB_ID::INVALID && uORB::Manager::get_instance()) {
-		unsigned initial_generation;
-		void *node = uORB::Manager::orb_add_internal_subscriber(_orb_id, _instance, &initial_generation);
-
-		if (node) {
-			_node = node;
-			_last_generation = initial_generation;
-			return true;
+	if (_orb_id != ORB_ID::INVALID) {
+		if (uORB::Manager::orb_add_internal_subscriber(_orb_id, _instance, &_last_generation, create, _node)) {
+			return orb_advert_valid(_node);
 		}
 	}
 
@@ -65,23 +59,29 @@ bool Subscription::subscribe()
 
 void Subscription::unsubscribe()
 {
-	if (_node != nullptr) {
+	if (orb_advert_valid(_node)) {
 		uORB::Manager::orb_remove_internal_subscriber(_node);
 	}
 
-	_node = nullptr;
+	_node = ORB_ADVERT_INVALID;
 	_last_generation = 0;
 }
 
 bool Subscription::ChangeInstance(uint8_t instance)
 {
 	if (instance != _instance) {
-		if (uORB::Manager::orb_device_node_exists(_orb_id, _instance)) {
-			// if desired new instance exists, unsubscribe from current
-			unsubscribe();
-			_instance = instance;
-			subscribe();
-			return true;
+		// Subscribe to the new existing node
+		unsigned generation;
+		orb_advert_t new_node = ORB_ADVERT_INVALID;
+
+		if (uORB::Manager::orb_add_internal_subscriber(_orb_id, instance, &generation, false, new_node)) {
+
+			if (orb_advert_valid(new_node)) {
+				unsubscribe();
+				_node = new_node;
+				_last_generation = generation;
+				return true;
+			}
 		}
 
 	} else {

@@ -119,19 +119,28 @@ int uorb_top(char **topic_filter, int num_filters);
 
 /**
  * ORB topic advertiser handle.
- *
- * Advertiser handles are global; once obtained they can be shared freely
- * and do not need to be closed or released.
- *
- * This permits publication from interrupt context and other contexts where
- * a file-descriptor-based handle would not otherwise be in scope for the
- * publisher.
  */
-typedef void 	*orb_advert_t;
-typedef void 	*orb_sub_t;
 
-static inline bool orb_advert_valid(orb_sub_t handle) {return handle != NULL;}
-static const orb_advert_t ORB_ADVERT_INVALID = NULL;
+typedef struct {
+	void *node;
+	void *node_data;
+	uint8_t queue_size; /* used to determine if the size has changed */
+} orb_advert_t;
+
+/**
+ * ORB topic subscriber handle.
+ */
+
+typedef void *orb_sub_t;
+
+/**
+ * Helper functions to initialize and check the handles
+ */
+
+static inline bool orb_advert_valid(orb_advert_t handle) {return handle.node != NULL;}
+
+static const orb_advert_t ORB_ADVERT_INVALID = {NULL, NULL, 0};
+
 static inline bool orb_sub_valid(orb_sub_t handle) {return handle != NULL;}
 static const orb_sub_t ORB_SUB_INVALID = NULL;
 
@@ -178,10 +187,10 @@ extern int	orb_publish(const struct orb_metadata *meta, orb_advert_t *handle, co
 static inline int orb_publish_auto(const struct orb_metadata *meta, orb_advert_t *handle, const void *data,
 				   int *instance)
 {
-	if (!*handle) {
+	if (!orb_advert_valid(*handle)) {
 		*handle = orb_advertise_multi(meta, data, instance);
 
-		if (*handle) {
+		if (orb_advert_valid(*handle)) {
 			return 0;
 		}
 

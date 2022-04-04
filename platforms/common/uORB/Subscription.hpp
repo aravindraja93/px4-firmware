@@ -112,10 +112,10 @@ public:
 		unsubscribe();
 	}
 
-	bool subscribe();
+	bool subscribe(bool create = false);
 	void unsubscribe();
 
-	bool valid() const { return _node != nullptr; }
+	bool valid() const { return orb_advert_valid(_node); }
 	bool advertised()
 	{
 		if (valid()) {
@@ -186,9 +186,9 @@ protected:
 	friend class SubscriptionCallback;
 	friend class SubscriptionCallbackWorkItem;
 
-	void *get_node() { return _node; }
+	orb_advert_t &get_node() { return _node; }
 
-	void *_node{nullptr};
+	orb_advert_t _node{ORB_ADVERT_INVALID};
 
 	unsigned _last_generation{0}; /**< last generation the subscriber has seen */
 

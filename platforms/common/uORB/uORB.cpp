@@ -40,7 +40,7 @@
 
 #include "uORBManager.hpp"
 #include "uORBCommon.hpp"
-
+#include "Publication.hpp"
 
 #include <lib/drivers/device/Device.hpp>
 #include <matrix/Quaternion.hpp>

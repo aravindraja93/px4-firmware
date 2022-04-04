@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012-2016 PX4 Development Team. All rights reserved.
+ *   Copyight (c) 2012-2016 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,10 +33,13 @@
 
 #pragma once
 
+#include <sys/shm.h>
+#include <sys/mman.h>
+#include <signal.h>
+#include <string.h>
+
 #include "uORBCommon.hpp"
 #include "uORBDeviceMaster.hpp"
-
-#include <lib/cdev/CDev.hpp>
 
 #include <containers/IntrusiveSortedList.hpp>
 #include <containers/List.hpp>
@@ -58,11 +61,14 @@ class UnitTest;
 /**
  * Per-object device instance.
  */
-class uORB::DeviceNode : public cdev::CDev, public IntrusiveSortedListNode<uORB::DeviceNode *>
+class uORB::DeviceNode
 {
 public:
-	DeviceNode(const struct orb_metadata *meta, const uint8_t instance, const char *path, uint8_t queue_size = 1);
-	virtual ~DeviceNode();
+	// Open a node, either existing or create a new one
+	static orb_advert_t nodeOpen(const struct orb_metadata *meta, const uint8_t instance, bool create);
+	static int nodeClose(orb_advert_t &handle);
+
+	~DeviceNode();
 
 	// no copy, assignment, move, move assignment
 	DeviceNode(const DeviceNode &) = delete;
@@ -73,54 +79,11 @@ public:
 	bool operator<=(const DeviceNode &rhs) const { return (strcmp(get_devname(), rhs.get_devname()) <= 0); }
 
 	/**
-	 * Method to create a subscriber instance and return the struct
-	 * pointing to the subscriber as a file pointer.
-	 */
-	int open(cdev::file_t *filp) override;
-
-	/**
-	 * Method to close a subscriber for this topic.
-	 */
-	int close(cdev::file_t *filp) override;
-
-	/**
-	 * reads data from a subscriber node to the buffer provided.
-	 * @param filp
-	 *   The subscriber from which the data needs to be read from.
-	 * @param buffer
-	 *   The buffer into which the data is read into.
-	 * @param buflen
-	 *   the length of the buffer
-	 * @return
-	 *   ssize_t the number of bytes read.
-	 */
-	ssize_t read(cdev::file_t *filp, char *buffer, size_t buflen) override;
-
-	/**
-	 * writes the published data to the internal buffer to be read by
-	 * subscribers later.
-	 * @param filp
-	 *   the subscriber; this is not used.
-	 * @param buffer
-	 *   The buffer for the input data
-	 * @param buflen
-	 *   the length of the buffer.
-	 * @return ssize_t
-	 *   The number of bytes that are written
-	 */
-	ssize_t write(cdev::file_t *filp, const char *buffer, size_t buflen) override;
-
-	/**
-	 * IOCTL control for the subscriber.
-	 */
-	int ioctl(cdev::file_t *filp, int cmd, unsigned long arg) override;
-
-	/**
 	 * Method to publish a data to this node.
 	 */
-	static ssize_t    publish(const orb_metadata *meta, orb_advert_t handle, const void *data);
+	static ssize_t    publish(const orb_metadata *meta, orb_advert_t &handle, const void *data);
 
-	static int        unadvertise(orb_advert_t handle);
+	static int        orb_unadvertise(orb_advert_t &handle) { return orb_advert_valid(handle) ? node(handle)->unadvertise(handle) : PX4_ERROR; }
 
 #ifdef ORB_COMMUNICATOR
 	static int16_t topic_advertised(const orb_metadata *meta);
@@ -147,39 +110,41 @@ public:
 	int16_t process_received_message(int32_t length, uint8_t *data);
 #endif /* ORB_COMMUNICATOR */
 
+	static orb_advert_t advertise(const struct orb_metadata *meta, int *instance, unsigned queue_size);
+
 	/**
-	  * Add the subscriber to the node's list of subscriber.  If there is
+	  * Add the subscriber to the node's list of subscribers.  If there is
 	  * remote proxy to which this subscription needs to be sent, it will
 	  * done via uORBCommunicator::IChannel interface.
-	  * @param sd
-	  *   the subscriber to be added.
+	  * @param initial_generation
+	  *   the handle to the orb to which the subscriber is added
+	  *   the subscriber's initial generation
+	  * @return
+	  *   subscriber's handle to the orb
 	  */
-	void add_internal_subscriber();
+	static bool add_subscriber(const orb_advert_t &handle, unsigned *initial_generation);
 
 	/**
 	 * Removes the subscriber from the list.  Also notifies the remote
 	 * if there a uORBCommunicator::IChannel instance.
-	 * @param sd
-	 *   the Subscriber to be removed.
+	 * @param handle
+	 *   the handle to the orb from which the subscriber is removed
+	 *   the handle is invalidated after a succesful removal
 	 */
-	void remove_internal_subscriber();
+	static void remove_subscriber(orb_advert_t &handle);
 
 	/**
 	 * Return true if this topic has been advertised.
 	 *
 	 * This is used in the case of multi_pub/sub to check if it's valid to advertise
 	 * and publish to this node or if another node should be tried. */
-	bool is_advertised() const { return _advertised; }
-
-	void mark_as_advertised() { _advertised = true; }
+	static bool is_advertised(const orb_advert_t &handle) { return orb_advert_valid(handle) ? node(handle)->_advertiser_count > 0 : false; }
 
 	/**
 	 * Try to change the size of the queue. This can only be done as long as nobody published yet.
-	 * This is the case, for example when orb_subscribe was called before an orb_advertise.
 	 * The queue size can only be increased.
-	 * @param queue_size new size of the queue
 	 * @return PX4_OK if queue size successfully set
-	 */
+	*/
 	int update_queue_size(unsigned int queue_size);
 
 	/**
@@ -206,11 +171,11 @@ public:
 	 */
 	unsigned get_initial_generation();
 
-	const orb_metadata *get_meta() const { return _meta; }
+	const orb_metadata *get_meta() const { return get_orb_meta(_orb_id); }
 
-	ORB_ID id() const { return static_cast<ORB_ID>(_meta->o_id); }
+	ORB_ID id() const { return _orb_id; }
 
-	const char *get_name() const { return _meta->o_name; }
+	const char *get_name() const { return get_orb_meta(_orb_id)->o_name; }
 
 	uint8_t get_instance() const { return _instance; }
 
@@ -225,45 +190,7 @@ public:
 	 * @return bool
 	 *   Returns true if the data was copied.
 	 */
-	bool copy(void *dst, unsigned &generation)
-	{
-		if ((dst != nullptr) && (_data != nullptr)) {
-			if (_queue_size == 1) {
-				ATOMIC_ENTER;
-				memcpy(dst, _data, _meta->o_size);
-				generation = _generation.load();
-				ATOMIC_LEAVE;
-				return true;
-
-			} else {
-				ATOMIC_ENTER;
-				const unsigned current_generation = _generation.load();
-
-				if (current_generation == generation) {
-					/* The subscriber already read the latest message, but nothing new was published yet.
-					* Return the previous message
-					*/
-					--generation;
-				}
-
-				// Compatible with normal and overflow conditions
-				if (!is_in_range(current_generation - _queue_size, generation, current_generation - 1)) {
-					// Reader is too far behind: some messages are lost
-					generation = current_generation - _queue_size;
-				}
-
-				memcpy(dst, _data + (_meta->o_size * (generation % _queue_size)), _meta->o_size);
-				ATOMIC_LEAVE;
-
-				++generation;
-
-				return true;
-			}
-		}
-
-		return false;
-
-	}
+	bool copy(void *dst, orb_advert_t &handle, unsigned &generation);
 
 	// add item to list of work items to schedule on node update
 	bool register_callback(SubscriptionCallback *callback_sub);
@@ -271,27 +198,34 @@ public:
 	// remove item from list of work items
 	void unregister_callback(SubscriptionCallback *callback_sub);
 
-protected:
+	void *operator new (size_t, void *p)
+	{
+		return p;
+	}
 
-	px4_pollevent_t poll_state(cdev::file_t *filp) override;
+	void operator delete (void *p)
+	{
+		munmap(p, sizeof(uORB::DeviceNode));
+	}
 
-	void poll_notify_one(px4_pollfd_struct_t *fds, px4_pollevent_t events) override;
+	const char *get_devname() const {return _devname;}
 
 private:
 	friend uORBTest::UnitTest;
 
-	const orb_metadata *_meta; /**< object metadata information */
+	//const orb_metadata *_meta; /**< object metadata information */
+	const ORB_ID _orb_id;
 
-	uint8_t *_data{nullptr};   /**< allocated object buffer */
 	bool _data_valid{false}; /**< At least one valid data */
 	px4::atomic<unsigned>  _generation{0};  /**< object generation count */
 	List<uORB::SubscriptionCallback *>	_callbacks;
 
 	const uint8_t _instance; /**< orb multi instance identifier */
-	bool _advertised{false};  /**< has ever been advertised (not necessarily published data yet) */
 	uint8_t _queue_size; /**< maximum number of elements in the queue */
 	int8_t _subscriber_count{0};
+	int8_t _advertiser_count{0};
 
+	DeviceNode(const struct orb_metadata *meta, const uint8_t instance, const char *path, uint8_t queue_size = 1);
 
 // Determine the data range
 	static inline bool is_in_range(unsigned left, unsigned value, unsigned right)
@@ -303,4 +237,33 @@ private:
 			return (left <= value) || (value <= right);
 		}
 	}
+
+	int        unadvertise(orb_advert_t &handle);
+
+	void add_internal_subscriber(unsigned *initial_generation);
+	void remove_internal_subscriber(const orb_advert_t &handle);
+
+	ssize_t write(const char *buffer, size_t buflen, orb_advert_t &handle);
+
+	/**
+	 * Each device node instance has its own lock/semaphore.
+	 *
+	 * Note that we must loop as the wait may be interrupted by a signal.
+	 *
+	 * Careful: lock() calls cannot be nested!
+	 */
+	void		lock() { do {} while (px4_sem_wait(&_lock) != 0); }
+
+	/**
+	 * Release the device node lock.
+	 */
+	void		unlock() { px4_sem_post(&_lock); }
+
+	void remap_data(orb_advert_t &handle, bool advertiser);
+
+	inline static DeviceNode *node(const orb_advert_t &handle) { return static_cast<uORB::DeviceNode *>(handle.node); }
+	inline static void *node_data(const orb_advert_t &handle) { return handle.node_data; }
+	px4_sem_t	_lock; /**< lock to protect access to all class members */
+
+	char _devname[64];
 };

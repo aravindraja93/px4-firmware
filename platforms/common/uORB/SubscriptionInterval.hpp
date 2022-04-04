@@ -85,7 +85,7 @@ public:
 
 	virtual ~SubscriptionInterval() = default;
 
-	bool subscribe() { return _subscription.subscribe(); }
+	bool subscribe(bool create = false) { return _subscription.subscribe(create); }
 	void unsubscribe() { _subscription.unsubscribe(); }
 
 	bool advertised() { return _subscription.advertised(); }
