@@ -33,6 +33,8 @@
 
 #pragma once
 
+#include <board_config.h>
+
 /*   Helper classes  */
 #include "Arming/PreFlightCheck/PreFlightCheck.hpp"
 #include "failure_detector/FailureDetector.hpp"
