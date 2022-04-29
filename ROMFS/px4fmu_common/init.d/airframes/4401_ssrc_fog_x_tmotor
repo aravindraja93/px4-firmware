@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# @name SSRC Quad X on T-Motor M690B or M690Pro frame
+# @name SSRC Quad X on T-Motor M690 series
 #
 # @type Quadrotor x
 # @class Copter
