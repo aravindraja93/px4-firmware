@@ -288,8 +288,23 @@ void print_load_buffer(char *buffer, int buffer_length, print_load_callback_f cb
 			continue; // not enough data yet
 		}
 
+		int mappings = 0;
+		struct task_group_s *group = system_load.tasks[i].tcb->group;
+		struct vm_map_s *mm = &group->tg_vm_map;
+
+		if (nxsem_wait(&mm->vm_map_sem) == OK) {
+			struct vm_map_entry_s *map = (struct vm_map_entry_s *)sq_peek(&mm->vm_map_sq);
+
+			while (map) {
+				mappings++;
+				map = (struct vm_map_entry_s *)sq_next(((sq_entry_t *)map));
+			}
+
+			nxsem_post(&mm->vm_map_sem);
+		}
+
 		// print output
-		int print_len = snprintf(buffer, buffer_length, "%4d %-*s %8d %6.3f %5u/%5u %3u (%3u) ",
+		int print_len = snprintf(buffer, buffer_length, "%4d %-*s %8d %6.3f %5u/%5u %3u (%3u) M:%6u",
 					 tcb_pid,
 					 CONFIG_TASK_NAME_SIZE, tcb_name,
 					 total_runtime[i] / 1000, // us -> ms
@@ -298,10 +313,11 @@ void print_load_buffer(char *buffer, int buffer_length, print_load_callback_f cb
 					 stack_size,
 					 tcb_sched_priority,
 #if CONFIG_ARCH_BOARD_SIM || !defined(CONFIG_PRIORITY_INHERITANCE)
-					 0);
+					 0
 #else
-					 tcb_base_priority);
+					 tcb_base_priority
 #endif
+					 , mappings * sizeof(struct vm_map_entry_s));
 #if CONFIG_RR_INTERVAL > 0
 		/* print scheduling info with RR time slice */
 		snprintf(buffer + print_len, buffer_length - print_len, " %5d %2d", tcb_timeslice, tcb_num_used_fds);
