@@ -64,6 +64,8 @@ using px4::AtomicBitset;
 class uORB::DeviceMaster
 {
 public:
+	DeviceMaster();
+	~DeviceMaster();
 
 	/**
 	 * Print statistics for each existing topic.
@@ -80,9 +82,6 @@ public:
 	void showTop(char **topic_filter, int num_filters);
 
 private:
-	// Private constructor, uORB::Manager takes care of its creation
-	DeviceMaster();
-	~DeviceMaster();
 
 	struct DeviceNodeStatisticsData {
 		DeviceNode *node;
@@ -95,15 +94,6 @@ private:
 			      char **topic_filter, int num_filters);
 
 	friend class uORB::Manager;
-
-	/**
-	 * Find a node give its name.
-	 * _lock must already be held when calling this.
-	 * @return node if exists, nullptr otherwise
-	 */
-	uORB::DeviceNode *getDeviceNodeLocked(const struct orb_metadata *meta, const uint8_t instance);
-
-	IntrusiveSortedList<uORB::DeviceNode *> _node_list;
 
 	px4_sem_t	_lock; /**< lock to protect access to all class members (also for derived classes) */
 

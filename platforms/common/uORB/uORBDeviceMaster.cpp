@@ -49,6 +49,12 @@
 #include <poll.h>
 #endif // PX4_QURT
 
+#ifndef CONFIG_FS_SHM_VFS_PATH
+#define CONFIG_FS_SHM_VFS_PATH "/dev/shm"
+#endif
+
+#include <dirent.h>
+
 uORB::DeviceMaster::DeviceMaster()
 {
 	px4_sem_init(&_lock, 0, 1);
@@ -85,6 +91,7 @@ void uORB::DeviceMaster::printStatistics()
 
 		DeviceNodeStatisticsData *prev = cur_node;
 		cur_node = cur_node->next;
+		munmap(prev->node, sizeof(uORB::DeviceNode));
 		delete prev;
 	}
 }
@@ -102,7 +109,36 @@ int uORB::DeviceMaster::addNewDeviceNodes(DeviceNodeStatisticsData **first_node,
 		}
 	}
 
-	for (const auto &node : _node_list) {
+	DIR *shm_dir = opendir(CONFIG_FS_SHM_VFS_PATH);
+	struct dirent *shm;
+	const char orb_name_prefix[] = "_orb_";
+
+	while ((shm = readdir(shm_dir)) != nullptr) {
+
+		if (strncmp(orb_name_prefix, shm->d_name, sizeof(orb_name_prefix) - 1)) {
+			continue;
+		}
+
+		void *ptr = nullptr;
+		uORB::DeviceNode *node = nullptr;
+
+		// open and mmap the shared memory segment
+		int shm_fd = shm_open(shm->d_name, O_RDWR, 0666);
+
+		if (shm_fd >= 0) {
+			ptr = mmap(0, sizeof(uORB::DeviceNode), PROT_READ, MAP_SHARED, shm_fd, 0);
+		}
+
+		if (ptr != MAP_FAILED) {
+			node = static_cast<uORB::DeviceNode *>(ptr);
+		}
+
+		close(shm_fd);
+
+		if (node == nullptr) {
+			PX4_ERR("Failed to MMAP an existing node\n");
+			continue;
+		}
 
 		++num_topics;
 
@@ -114,6 +150,8 @@ int uORB::DeviceMaster::addNewDeviceNodes(DeviceNodeStatisticsData **first_node,
 		}
 
 		if (cur_node) {
+			// currently nuttx creates a new mapping on every mmap. TODO: check linux
+			munmap(node, sizeof(uORB::DeviceNode));
 			continue;
 		}
 
@@ -155,6 +193,7 @@ int uORB::DeviceMaster::addNewDeviceNodes(DeviceNodeStatisticsData **first_node,
 		last_node->last_pub_msg_count = last_node->node->updates_available(0);
 	}
 
+	closedir(shm_dir);
 	return 0;
 }
 
@@ -187,12 +226,6 @@ void uORB::DeviceMaster::showTop(char **topic_filter, int num_filters)
 	PX4_INFO_RAW("\033[2J\n"); //clear screen
 
 	lock();
-
-	if (_node_list.empty()) {
-		unlock();
-		PX4_INFO("no active topics");
-		return;
-	}
 
 	DeviceNodeStatisticsData *first_node = nullptr;
 	DeviceNodeStatisticsData *cur_node = nullptr;
@@ -319,7 +352,8 @@ void uORB::DeviceMaster::showTop(char **topic_filter, int num_filters)
 
 	while (cur_node) {
 		DeviceNodeStatisticsData *next_node = cur_node->next;
-		delete cur_node;
+		munmap(cur_node->node, sizeof(uORB::DeviceNode));
+		delete (cur_node);
 		cur_node = next_node;
 	}
 }
