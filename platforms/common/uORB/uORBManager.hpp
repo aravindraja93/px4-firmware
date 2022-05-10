@@ -34,9 +34,11 @@
 #ifndef _uORBManager_hpp_
 #define _uORBManager_hpp_
 
+#include <px4_platform_common/atomic.h>
+#include <px4_platform_common/sem.h>
+
 #include "uORBDeviceNode.hpp"
 #include "uORBCommon.hpp"
-#include "uORBDeviceMaster.hpp"
 
 #include <uORB/topics/uORBTopics.hpp> // For ORB_ID enum
 #include <stdint.h>
@@ -58,7 +60,6 @@ namespace uORB
 class Manager;
 class SubscriptionCallback;
 }
-
 
 /*
  * IOCTLs for manager to access device nodes using
@@ -159,6 +160,7 @@ typedef enum {
 } orbiocdevmastercmd_t;
 #define ORBIOCDEVMASTERCMD	_ORBIOCDEV(45)
 
+#define MAX_POLLING_THREADS 20
 
 /**
  * This is implemented as a singleton.  This class manages creating the
@@ -435,6 +437,8 @@ public:
 	 */
 	int	orb_get_interval(orb_sub_t handle, unsigned *interval);
 
+	int orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeout);
+
 	static bool orb_device_node_exists(ORB_ID orb_id, uint8_t instance);
 
 	static bool orb_add_internal_subscriber(ORB_ID orb_id, uint8_t instance, unsigned *initial_generation,
@@ -489,6 +493,31 @@ public:
 	{
 		munmap(p, sizeof(uORB::Manager));
 	}
+
+
+	/*
+	 * These are used by subscribers and publishers only. Callbacks and poll interface
+	 * work on posix signals, and lock is used to protect signal queue overflow.
+	 * lockAdvertising blocks advertising to the subscriber's thread and
+	 * unlockAdvertising enables this again
+	 */
+
+	static void lockAdvertising(int idx)
+	{
+		do {} while (px4_sem_wait(&get_instance()->_subscriber_threads[idx].sem) != 0);
+	}
+
+	static void unlockAdvertising(int idx)
+	{
+		px4_sem_post(&get_instance()->_subscriber_threads[idx].sem);
+	}
+
+	// This is used for force sending signals to the subscriber one-by-one
+	// parallel signalling would cause publish poll events / callbacks to get lost
+
+	static void freeThreadLock(int i);
+
+	static int8_t getThreadLock();
 
 private: // class methods
 	inline static uORB::DeviceNode *node(orb_advert_t handle) {return static_cast<uORB::DeviceNode *>(handle.node);}

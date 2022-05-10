@@ -38,12 +38,17 @@
 #include <signal.h>
 #include <string.h>
 
+#include "uORB.h"
 #include "uORBCommon.hpp"
-#include "uORBDeviceMaster.hpp"
+#include <uORB/topics/uORBTopics.hpp>
+//#include "uORBManager.hpp"
+#include <px4_platform_common/sem.h>
 
 #include <containers/IntrusiveSortedList.hpp>
 #include <containers/List.hpp>
 #include <px4_platform_common/atomic.h>
+
+#define MAX_EVENT_WAITERS 3
 
 namespace uORB
 {
@@ -192,11 +197,13 @@ public:
 	 */
 	bool copy(void *dst, orb_advert_t &handle, unsigned &generation);
 
+	static void orb_callback(int signo, siginfo_t *si_info, void *data);
+
 	// add item to list of work items to schedule on node update
-	bool register_callback(SubscriptionCallback *callback_sub);
+	bool register_signalling(SubscriptionCallback *callback_sub);
 
 	// remove item from list of work items
-	void unregister_callback(SubscriptionCallback *callback_sub);
+	void unregister_signalling(SubscriptionCallback *callback_sub);
 
 	void *operator new (size_t, void *p)
 	{
@@ -218,7 +225,16 @@ private:
 
 	bool _data_valid{false}; /**< At least one valid data */
 	px4::atomic<unsigned>  _generation{0};  /**< object generation count */
-	List<uORB::SubscriptionCallback *>	_callbacks;
+
+	struct EventWaitItem {
+		pid_t pid;
+		// NOTE: This cannot be de-referenced in advertiser context!
+		struct SubscriptionCallback *subscriber;
+		int8_t lock;
+	};
+
+	// A vector of event waiters
+	EventWaitItem _sigwaiters[MAX_EVENT_WAITERS];
 
 	const uint8_t _instance; /**< orb multi instance identifier */
 	uint8_t _queue_size; /**< maximum number of elements in the queue */

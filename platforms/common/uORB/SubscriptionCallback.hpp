@@ -41,6 +41,7 @@
 #include <uORB/SubscriptionInterval.hpp>
 #include <containers/List.hpp>
 #include <px4_platform_common/px4_work_queue/WorkItem.hpp>
+#include <px4_platform_common/posix.h>
 
 namespace uORB
 {
@@ -131,7 +132,6 @@ public:
 protected:
 
 	bool _registered{false};
-
 };
 
 // Subscription with callback that schedules a WorkItem
@@ -179,6 +179,36 @@ private:
 	px4::WorkItem *_work_item;
 
 	uint8_t _required_updates{0};
+};
+
+class SubscriptionPollable : public SubscriptionCallback
+{
+public:
+	/**
+	 * Constructor
+	 *
+	 * @param meta The uORB metadata (usually from the ORB_ID() macro) for the topic.
+	 * @param instance The instance for multi sub.
+	 */
+	SubscriptionPollable(const orb_metadata *meta, uint8_t instance = 0) :
+		SubscriptionCallback(meta, 0, instance),
+		_revents{0}
+	{
+	}
+
+	virtual ~SubscriptionPollable() = default;
+
+	void call() override
+	{
+		/* Mark events */
+		_revents |= POLLIN;
+	}
+
+	orb_pollevent_t getRevents() { return _revents; }
+	void clearRevents() { _revents = 0; }
+
+private:
+	orb_pollevent_t _revents{0};
 };
 
 } // namespace uORB

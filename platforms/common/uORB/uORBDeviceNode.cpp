@@ -225,6 +225,8 @@ int uORB::DeviceNode::unadvertise(orb_advert_t &handle)
 
 	// TODO! Handle all subscriber callbacks?
 
+	// TODO! Handle all subscriber callbacks?
+
 	nodeClose(handle);
 
 	return PX4_OK;
@@ -242,6 +244,10 @@ uORB::DeviceNode::DeviceNode(const struct orb_metadata *meta, const uint8_t inst
 
 	if (ret != 0) {
 		PX4_DEBUG("SEM INIT FAIL: ret %d", ret);
+	}
+
+	for (auto &item : _sigwaiters) {
+		item.pid = -1;
 	}
 }
 
@@ -354,11 +360,6 @@ bool uORB::DeviceNode::copy(void *dst, orb_advert_t &handle, unsigned &generatio
 ssize_t
 uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 {
-	/*
-	 * Writes are legal from interrupt context as long as the
-	 * object has already been initialised from thread context.
-	 */
-
 	/* If write size does not match, that is an error */
 	if (get_orb_meta(_orb_id)->o_size != buflen) {
 		return -EIO;
@@ -378,18 +379,28 @@ uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 
 	memcpy(((uint8_t *)node_data(handle)) + get_meta()->o_size * (generation % _queue_size), buffer, get_meta()->o_size);
 
-	// callbacks
-	for (auto item : _callbacks) {
-		item->call();
-	}
-
 	/* Mark at least one data has been published */
 	_data_valid = true;
 
 	unlock();
 
-	/* notify any poll waiters */
-	//TODO	orb_poll_notify(POLLIN);
+	// callbacks and poll waiters
+	for (auto &event : _sigwaiters) {
+		if (event.pid != -1) {
+			Manager::lockAdvertising(event.lock);
+			union sigval value;
+			value.sival_ptr = &event;
+			int ret = sigqueue(event.pid, SIGRTMIN, value);
+
+			if (ret < 0) {
+				Manager::unlockAdvertising(event.lock);
+				PX4_ERR("Callback to pid %d failed with %d. Dropping callback for subscription 0x%" PRIxPTR "\n", event.pid, ret,
+					(uintptr_t)event.subscriber);
+				event.pid = -1;
+				Manager::freeThreadLock(event.lock);
+			}
+		}
+	}
 
 	return get_meta()->o_size;
 }
@@ -621,32 +632,106 @@ unsigned uORB::DeviceNode::get_initial_generation()
 	return generation;
 }
 
-bool
-uORB::DeviceNode::register_callback(uORB::SubscriptionCallback *callback_sub)
+void uORB::DeviceNode::orb_callback(int signo, siginfo_t *si_info, void *data)
 {
+	/*
+	 * We are using signal queue of length 1. Now we are
+	 * executing one, so we can allow queueing another
+	 * for this process
+	 */
+	EventWaitItem *event = static_cast<EventWaitItem *>(si_info->si_value.sival_ptr);
+
+	if (signo != SIGRTMIN) {
+		PX4_WARN("Received unexpeceted signal %d", signo);
+	}
+
+	Manager::unlockAdvertising(event->lock);
+	event->subscriber->call();
+}
+
+bool
+uORB::DeviceNode::register_signalling(uORB::SubscriptionCallback *callback_sub)
+{
+	bool ret = false;
+
 	if (callback_sub != nullptr) {
 		lock();
+		pid_t pid = getpid();
 
-		// prevent duplicate registrations
-		for (auto existing_callbacks : _callbacks) {
-			if (callback_sub == existing_callbacks) {
-				lock();
+		for (auto &existing_callbacks : _sigwaiters) {
+			// prevent duplicate registrations
+			if (pid == existing_callbacks.pid && callback_sub == existing_callbacks.subscriber) {
+				unlock();
+				PX4_WARN("Duplicate callback registration for PID %d\n", pid);
 				return true;
+			}
+
+			if (existing_callbacks.pid == -1) {
+				existing_callbacks.lock = Manager::getThreadLock();
+
+				if (existing_callbacks.lock >= 0) {
+					existing_callbacks.subscriber = callback_sub;
+					existing_callbacks.pid = pid;
+					ret = true;
+
+				} else {
+					PX4_ERR("No free thread locks");
+				}
+
+				break;
 			}
 		}
 
-		_callbacks.add(callback_sub);
+		if (!ret) {
+			PX4_ERR("Out of sigwaiters\n");
+		}
+
+		struct sigaction act;
+
+		if (ret) {
+			memset(&act, 0, sizeof(struct sigaction));
+
+			if (sigemptyset(&act.sa_mask) < 0 ||
+			    sigaddset(&act.sa_mask, SIGRTMIN) < 0) {
+				PX4_ERR("sigaddset fail");
+				ret = false;
+			}
+		}
+
+		if (ret) {
+			struct sigaction old;
+			memset(&old, 0, sizeof(struct sigaction));
+
+			act.sa_sigaction = orb_callback;
+
+			act.sa_flags = SA_SIGINFO;
+
+			ret = sigaction(SIGRTMIN, &act, &old) == 0;
+		}
+
 		unlock();
-		return true;
 	}
 
-	return false;
+	if (!ret) {
+		PX4_ERR("Callback registration fail");
+	}
+
+	return ret;
 }
 
 void
-uORB::DeviceNode::unregister_callback(uORB::SubscriptionCallback *callback_sub)
+uORB::DeviceNode::unregister_signalling(uORB::SubscriptionCallback *callback_sub)
 {
 	lock();
-	_callbacks.remove(callback_sub);
+
+	pid_t pid = getpid();
+
+	for (auto &existing_callbacks : _sigwaiters) {
+		if (callback_sub == existing_callbacks.subscriber && pid == existing_callbacks.pid) {
+			existing_callbacks.pid = -1;
+			Manager::freeThreadLock(existing_callbacks.lock);
+		}
+	}
+
 	unlock();
 }
