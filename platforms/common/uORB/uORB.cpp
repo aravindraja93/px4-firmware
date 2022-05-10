@@ -39,6 +39,7 @@
 #include "uORB.h"
 
 #include "uORBManager.hpp"
+#include "uORBDeviceMaster.hpp"
 #include "uORBCommon.hpp"
 #include "Publication.hpp"
 
@@ -83,6 +84,11 @@ int uorb_top(char **topic_filter, int num_filters)
 	dev.showTop(topic_filter, num_filters);
 
 	return OK;
+}
+
+int orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeout)
+{
+	return uORB::Manager::get_instance()->orb_poll(fds, nfds, timeout);
 }
 
 orb_advert_t orb_advertise(const struct orb_metadata *meta, const void *data)

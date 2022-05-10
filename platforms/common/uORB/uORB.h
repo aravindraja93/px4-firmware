@@ -56,6 +56,7 @@ struct orb_metadata {
 
 typedef const struct orb_metadata *orb_id_t;
 
+
 /**
  * Maximum number of multi topic instances. This must be <= 10 (because it's the last char of the node path)
  */
@@ -143,6 +144,23 @@ static const orb_advert_t ORB_ADVERT_INVALID = {NULL, NULL, 0};
 
 static inline bool orb_sub_valid(orb_sub_t handle) {return handle != NULL;}
 static const orb_sub_t ORB_SUB_INVALID = NULL;
+
+/**
+ * orb_poll struct
+ */
+
+typedef short orb_pollevent_t;
+typedef struct {
+	/* This part of the struct is POSIX-like */
+	orb_sub_t           fd;       /* The polling subscriber handle */
+	orb_pollevent_t         events;   /* The input event flags */
+	orb_pollevent_t         revents;  /* The output event flags */
+} orb_poll_struct_t;
+
+/**
+ * @see uORB::Manager::orb_poll()
+ */
+extern int orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeout) __EXPORT;
 
 /**
  * @see uORB::Manager::orb_advertise()
