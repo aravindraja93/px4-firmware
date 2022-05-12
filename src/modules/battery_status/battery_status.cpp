@@ -236,7 +236,13 @@ BatteryStatus::adc_poll()
 void
 BatteryStatus::Run()
 {
-	if (should_exit()) {
+	static bool initialized = false;
+
+	if (!initialized) {
+		initialized = init();
+	}
+
+	if (should_exit() || !initialized) {
 		exit_and_cleanup();
 		return;
 	}
@@ -260,16 +266,12 @@ BatteryStatus::task_spawn(int argc, char *argv[])
 	if (instance) {
 		_object.store(instance);
 		_task_id = task_id_is_work_queue;
+		return PX4_OK;
 
-		if (instance->init()) {
-			return PX4_OK;
-		}
-
-	} else {
-		PX4_ERR("alloc failed");
 	}
 
-	delete instance;
+	PX4_ERR("alloc failed");
+
 	_object.store(nullptr);
 	_task_id = -1;
 
