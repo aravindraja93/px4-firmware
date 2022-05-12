@@ -78,6 +78,18 @@ void ToneAlarm::InterruptStopNote(void *arg)
 
 void ToneAlarm::Run()
 {
+	static bool initialized = false;
+
+	if (!initialized && Init()) {
+		initialized = Init();
+	}
+
+	if (should_exit() || !initialized) {
+		_tune_control_sub.unregisterCallback();
+		exit_and_cleanup();
+		return;
+	}
+
 	// Check if circuit breaker is enabled.
 	if (!_circuit_break_initialized) {
 		if (circuit_breaker_enabled("CBRK_BUZZER", CBRK_BUZZER_KEY)) {
@@ -85,12 +97,6 @@ void ToneAlarm::Run()
 		}
 
 		_circuit_break_initialized = true;
-	}
-
-	if (should_exit()) {
-		_tune_control_sub.unregisterCallback();
-		exit_and_cleanup();
-		return;
 	}
 
 	// Check for next tune_control when not currently playing
@@ -242,11 +248,6 @@ int ToneAlarm::task_spawn(int argc, char *argv[])
 	if (!instance) {
 		PX4_ERR("alloc failed");
 		return -1;
-	}
-
-	if (!instance->Init()) {
-		delete instance;
-		return PX4_ERROR;
 	}
 
 	_object.store(instance);
