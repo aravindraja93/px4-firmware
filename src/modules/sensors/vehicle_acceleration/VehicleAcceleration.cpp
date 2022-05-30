@@ -61,16 +61,6 @@ bool VehicleAcceleration::Start()
 	// force initial updates
 	ParametersUpdate(true);
 
-	// sensor_selection needed to change the active sensor if the primary stops updating
-	if (!_sensor_selection_sub.registerCallback()) {
-		PX4_ERR("callback registration failed");
-		return false;
-	}
-
-	if (!SensorSelectionUpdate(true)) {
-		_sensor_sub.registerCallback();
-	}
-
 	return true;
 }
 
@@ -209,6 +199,23 @@ void VehicleAcceleration::ParametersUpdate(bool force)
 
 void VehicleAcceleration::Run()
 {
+	static bool initialized = false;
+
+	if (!initialized) {
+
+		// sensor_selection needed to change the active sensor if the primary stops updating
+		if (!_sensor_selection_sub.registerCallback()) {
+			PX4_ERR("callback registration failed");
+			return;
+		}
+
+		if (!SensorSelectionUpdate(true)) {
+			_sensor_sub.registerCallback();
+		}
+
+		initialized = true;
+	}
+
 	// backup schedule
 	ScheduleDelayed(10_ms);
 

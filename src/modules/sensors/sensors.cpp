@@ -305,7 +305,6 @@ Sensors::~Sensors()
 
 bool Sensors::init()
 {
-	_vehicle_imu_sub[0].registerCallback();
 	ScheduleNow();
 	return true;
 }
@@ -627,6 +626,13 @@ void Sensors::InitializeVehicleMagnetometer()
 
 void Sensors::Run()
 {
+	static bool initialized = false;
+
+	if (!initialized) {
+		_vehicle_imu_sub[0].registerCallback();
+		initialized = true;
+	}
+
 	if (should_exit()) {
 		// clear all registered callbacks
 		for (auto &sub : _vehicle_imu_sub) {

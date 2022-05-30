@@ -73,12 +73,6 @@ bool VehicleAngularVelocity::Start()
 	// force initial updates
 	ParametersUpdate(true);
 
-	// sensor_selection needed to change the active sensor if the primary stops updating
-	if (!_sensor_selection_sub.registerCallback()) {
-		PX4_ERR("callback registration failed");
-		return false;
-	}
-
 	if (!SensorSelectionUpdate(true)) {
 		ScheduleNow();
 	}
@@ -748,6 +742,18 @@ float VehicleAngularVelocity::FilterAngularAcceleration(int axis, float inverse_
 
 void VehicleAngularVelocity::Run()
 {
+	static bool initialized = false;
+
+	if (!initialized) {
+		// sensor_selection needed to change the active sensor if the primary stops updating
+		if (!_sensor_selection_sub.registerCallback()) {
+			PX4_ERR("callback registration failed");
+			return;
+		}
+
+		initialized = true;
+	}
+
 	perf_begin(_cycle_perf);
 
 	// backup schedule

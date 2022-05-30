@@ -91,7 +91,6 @@ bool VehicleIMU::Start()
 	// force initial updates
 	ParametersUpdate(true);
 
-	_sensor_gyro_sub.registerCallback();
 	ScheduleNow();
 	return true;
 }
@@ -168,9 +167,15 @@ bool VehicleIMU::ParametersUpdate(bool force)
 
 void VehicleIMU::Run()
 {
+	static bool initialized = false;
 	const hrt_abstime now_us = hrt_absolute_time();
 
 	const bool parameters_updated = ParametersUpdate();
+
+	if (!initialized) {
+		_sensor_gyro_sub.registerCallback();
+		initialized = true;
+	}
 
 	if (!_accel_calibration.enabled() || !_gyro_calibration.enabled()) {
 		_sensor_gyro_sub.unregisterCallback();

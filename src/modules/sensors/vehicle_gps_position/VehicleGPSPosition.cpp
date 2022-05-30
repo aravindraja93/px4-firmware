@@ -54,9 +54,6 @@ VehicleGPSPosition::~VehicleGPSPosition()
 
 bool VehicleGPSPosition::Start()
 {
-	// force initial updates
-	ParametersUpdate(true);
-
 	ScheduleNow();
 
 	return true;
@@ -101,8 +98,12 @@ void VehicleGPSPosition::ParametersUpdate(bool force)
 
 void VehicleGPSPosition::Run()
 {
+	static bool initialized = false;
 	perf_begin(_cycle_perf);
-	ParametersUpdate();
+
+	// force initial updates
+	ParametersUpdate(!initialized);
+	initialized = true;
 
 	// Check all GPS instance
 	bool any_gps_updated = false;
