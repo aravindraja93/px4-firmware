@@ -301,6 +301,13 @@ float GyroFFT::EstimatePeakFrequencyBin(q15_t fft[], int peak_index)
 
 void GyroFFT::Run()
 {
+	static bool initialized = false;
+
+	if (!initialized) {
+		initialized = init();
+		return;
+	}
+
 	if (should_exit()) {
 		_sensor_gyro_sub.unregisterCallback();
 		_sensor_gyro_fifo_sub.unregisterCallback();
@@ -685,15 +692,14 @@ int GyroFFT::task_spawn(int argc, char *argv[])
 		_object.store(instance);
 		_task_id = task_id_is_work_queue;
 
-		if (instance->init()) {
-			return PX4_OK;
-		}
+		instance->ScheduleNow();
+
+		return PX4_OK;
 
 	} else {
 		PX4_ERR("alloc failed");
 	}
 
-	delete instance;
 	_object.store(nullptr);
 	_task_id = -1;
 
