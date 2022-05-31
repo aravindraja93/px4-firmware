@@ -48,6 +48,7 @@
 #if defined(__PX4_NUTTX)
 #include <nuttx/arch.h>
 #include <nuttx/mm/mm.h>
+#include <px4_platform/micro_hal.h>
 #endif
 
 #include <px4_platform_common/sem.hpp>
@@ -402,6 +403,15 @@ uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 		}
 	}
 
+#ifdef CONFIG_BUILD_FLAT
+
+	// callbacks
+	for (auto item : _callbacks) {
+		item->call();
+	}
+
+#endif
+
 	return get_meta()->o_size;
 }
 
@@ -735,3 +745,35 @@ uORB::DeviceNode::unregister_signalling(uORB::SubscriptionCallback *callback_sub
 
 	unlock();
 }
+
+#ifdef CONFIG_BUILD_FLAT
+bool
+uORB::DeviceNode::register_callback(uORB::SubscriptionCallback *callback_sub)
+{
+	if (callback_sub != nullptr) {
+		irqstate_t flags = px4_enter_critical_section();
+
+		// prevent duplicate registrations
+		for (auto existing_callbacks : _callbacks) {
+			if (callback_sub == existing_callbacks) {
+				px4_leave_critical_section(flags);
+				return true;
+			}
+		}
+
+		_callbacks.add(callback_sub);
+		px4_leave_critical_section(flags);
+		return true;
+	}
+
+	return false;
+}
+
+void
+uORB::DeviceNode::unregister_callback(uORB::SubscriptionCallback *callback_sub)
+{
+	irqstate_t flags = px4_enter_critical_section();
+	_callbacks.remove(callback_sub);
+	px4_leave_critical_section(flags);
+}
+#endif

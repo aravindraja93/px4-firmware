@@ -451,9 +451,9 @@ public:
 	static bool orb_data_copy(orb_advert_t &node_handle, void *dst, unsigned &generation,
 				  bool only_if_updated);
 
-	static bool register_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub);
+	static bool register_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub, bool poll);
 
-	static void unregister_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub);
+	static void unregister_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub, bool poll);
 
 	static uint8_t orb_get_instance(orb_advert_t &node_handle);
 

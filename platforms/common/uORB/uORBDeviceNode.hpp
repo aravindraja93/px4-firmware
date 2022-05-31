@@ -199,6 +199,14 @@ public:
 
 	static void orb_callback(int signo, siginfo_t *si_info, void *data);
 
+#ifdef CONFIG_BUILD_FLAT
+	// add item to list of work items to schedule on node update
+	bool register_callback(SubscriptionCallback *callback_sub);
+
+	// remove item from list of work items
+	void unregister_callback(SubscriptionCallback *callback_sub);
+#endif
+
 	// add item to list of work items to schedule on node update
 	bool register_signalling(SubscriptionCallback *callback_sub);
 
@@ -235,6 +243,10 @@ private:
 
 	// A vector of event waiters
 	EventWaitItem _sigwaiters[MAX_EVENT_WAITERS];
+
+#ifdef CONFIG_BUILD_FLAT
+	List<uORB::SubscriptionCallback *>      _callbacks;
+#endif
 
 	const uint8_t _instance; /**< orb multi instance identifier */
 	uint8_t _queue_size; /**< maximum number of elements in the queue */

@@ -67,7 +67,7 @@ public:
 		unregisterCallback();
 	};
 
-	bool registerCallback()
+	bool registerCallback(bool poll = false)
 	{
 		if (!_registered) {
 			if (!orb_advert_valid(_subscription.get_node())) {
@@ -77,7 +77,7 @@ public:
 				}
 			}
 
-			if (orb_advert_valid(_subscription.get_node()) && Manager::register_callback(_subscription.get_node(), this)) {
+			if (orb_advert_valid(_subscription.get_node()) && Manager::register_callback(_subscription.get_node(), this, poll)) {
 				_registered = true;
 			}
 		}
@@ -85,10 +85,10 @@ public:
 		return _registered;
 	}
 
-	void unregisterCallback()
+	void unregisterCallback(bool poll = false)
 	{
 		if (orb_advert_valid(_subscription.get_node())) {
-			Manager::unregister_callback(_subscription.get_node(), this);
+			Manager::unregister_callback(_subscription.get_node(), this, poll);
 		}
 
 		_registered = false;

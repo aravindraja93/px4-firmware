@@ -461,7 +461,7 @@ int uORB::Manager::orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeo
 	for (unsigned i = 0; i < nfds; i++) {
 		sub = static_cast<SubscriptionPollable *>(fds[i].fd);
 		sub->clearRevents();
-		sub->registerCallback();
+		sub->registerCallback(true);
 	}
 
 	int sig_ret = sigtimedwait(&waitset, &info, &to);
@@ -469,7 +469,7 @@ int uORB::Manager::orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeo
 
 	for (unsigned i = 0; i < nfds; i++) {
 		sub = static_cast<SubscriptionPollable *>(fds[i].fd);
-		sub->unregisterCallback();
+		sub->unregisterCallback(true);
 		fds[i].revents = sub->getRevents();
 
 		if (fds[i].revents & POLLIN) {
@@ -601,15 +601,33 @@ bool uORB::Manager::orb_data_copy(orb_advert_t &node_handle, void *dst, unsigned
 }
 
 // add item to list of work items to schedule on node update
-bool uORB::Manager::register_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub)
+bool uORB::Manager::register_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub, bool poll)
 {
-	return node(node_handle)->register_callback(callback_sub);
+#ifdef CONFIG_BUILD_FLAT
+
+	if (!poll) {
+		return node(node_handle)->register_callback(callback_sub);
+
+	} else
+#endif
+	{
+		return node(node_handle)->register_signalling(callback_sub);
+	}
 }
 
 // remove item from list of work items
-void uORB::Manager::unregister_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub)
+void uORB::Manager::unregister_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub, bool poll)
 {
-	node(node_handle)->unregister_callback(callback_sub);
+#ifdef CONFIG_BUILD_FLAT
+
+	if (!poll) {
+		node(node_handle)->unregister_callback(callback_sub);
+
+	} else
+#endif
+	{
+		node(node_handle)->unregister_signalling(callback_sub);
+	}
 }
 
 uint8_t uORB::Manager::orb_get_instance(orb_advert_t &node_handle)
