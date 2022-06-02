@@ -344,7 +344,13 @@ RCUpdate::map_flight_modes_buttons()
 
 void RCUpdate::Run()
 {
-	if (should_exit()) {
+	static bool initialized = false;
+
+	if (!initialized && init()) {
+		initialized = true;
+	}
+
+	if (should_exit() || !initialized) {
 		_input_rc_sub.unregisterCallback();
 		exit_and_cleanup();
 		return;
@@ -752,16 +758,12 @@ int RCUpdate::task_spawn(int argc, char *argv[])
 	if (instance) {
 		_object.store(instance);
 		_task_id = task_id_is_work_queue;
-
-		if (instance->init()) {
-			return PX4_OK;
-		}
+		return PX4_OK;
 
 	} else {
 		PX4_ERR("alloc failed");
 	}
 
-	delete instance;
 	_object.store(nullptr);
 	_task_id = -1;
 
