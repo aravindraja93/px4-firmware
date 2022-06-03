@@ -48,7 +48,7 @@
 #include <containers/List.hpp>
 #include <px4_platform_common/atomic.h>
 
-#define MAX_EVENT_WAITERS 3
+#define MAX_EVENT_WAITERS 20
 
 namespace uORB
 {
