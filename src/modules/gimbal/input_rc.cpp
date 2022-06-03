@@ -87,10 +87,7 @@ InputRC::UpdateResult InputRC::update(unsigned int timeout_ms, ControlData &cont
 		}
 	}
 
-	bool updated;
-	orb_check(_manual_control_setpoint_sub, &updated);
-
-	if (updated) {
+	if (polls[0].revents & POLLIN) {
 		return _read_control_data_from_subscription(control_data, already_active);
 	}
 
