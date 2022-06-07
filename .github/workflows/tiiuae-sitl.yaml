@@ -2,7 +2,7 @@ name: tii-px4-sitl
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, fix-gps-device-id-pre-rebase ]
   pull_request:
     branches: [ master ]
 
