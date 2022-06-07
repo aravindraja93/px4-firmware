@@ -56,6 +56,7 @@ class DeviceNode;
 class DeviceMaster;
 class Manager;
 class SubscriptionCallback;
+class SubscriptionPollable;
 }
 
 namespace uORBTest
@@ -199,19 +200,12 @@ public:
 
 	static void orb_callback(int signo, siginfo_t *si_info, void *data);
 
-#ifdef CONFIG_BUILD_FLAT
-	// add item to list of work items to schedule on node update
-	bool register_callback(SubscriptionCallback *callback_sub);
+	static bool register_poll(orb_advert_t &node_handle, SubscriptionPollable *callback_sub, int8_t lock);
 
-	// remove item from list of work items
-	void unregister_callback(SubscriptionCallback *callback_sub);
-#endif
+	static orb_pollevent_t unregister_poll(orb_advert_t &node_handle, SubscriptionPollable *callback_sub);
 
-	// add item to list of work items to schedule on node update
-	bool register_signalling(SubscriptionCallback *callback_sub);
-
-	// remove item from list of work items
-	void unregister_signalling(SubscriptionCallback *callback_sub);
+	static bool register_callback(orb_advert_t &node_handle, uORB::SubscriptionCallback *callback_sub);
+	static void unregister_callback(orb_advert_t &node_handle, uORB::SubscriptionCallback *callback_sub);
 
 	void *operator new (size_t, void *p)
 	{
@@ -237,7 +231,8 @@ private:
 	struct EventWaitItem {
 		pid_t pid;
 		// NOTE: This cannot be de-referenced in advertiser context!
-		struct SubscriptionCallback *subscriber;
+		struct SubscriptionInterval *subscriber;
+		orb_pollevent_t revents;
 		int8_t lock;
 	};
 

@@ -160,7 +160,7 @@ typedef enum {
 } orbiocdevmastercmd_t;
 #define ORBIOCDEVMASTERCMD	_ORBIOCDEV(45)
 
-#define MAX_POLLING_THREADS 20
+#define NUM_GLOBAL_SEMS 20
 
 /**
  * This is implemented as a singleton.  This class manages creating the
@@ -504,20 +504,21 @@ public:
 
 	static void lockAdvertising(int idx)
 	{
-		do {} while (px4_sem_wait(&get_instance()->_subscriber_threads[idx].sem) != 0);
+		get_instance()->g_sem_pool.take(idx);
+
 	}
 
 	static void unlockAdvertising(int idx)
 	{
-		px4_sem_post(&get_instance()->_subscriber_threads[idx].sem);
+		get_instance()->g_sem_pool.release(idx);
 	}
 
 	// This is used for force sending signals to the subscriber one-by-one
 	// parallel signalling would cause publish poll events / callbacks to get lost
 
-	static void freeThreadLock(int i);
+	static void freeThreadLock(int i) {get_instance()->g_sem_pool.free(i);}
 
-	static int8_t getThreadLock();
+	static int8_t getThreadLock() {return get_instance()->g_sem_pool.reserve(true);}
 
 private: // class methods
 	inline static uORB::DeviceNode *node(orb_advert_t handle) {return static_cast<uORB::DeviceNode *>(handle.node);}
@@ -689,18 +690,42 @@ private: //class methods
 
 	SubscriptionCache subscriptionCache;
 
-	// Global cache fro existing uORB node instances
+	// Global cache for existing uORB node instances
 	uint16_t g_exists[ORB_TOPICS_COUNT];
 
-	// A vector of subscriber thread locks, to pass signals to threads one-by-one from advertiser's publish
+	// A global pool of semaphores for
+	// 1) poll locks
+	// 2) protect signal queue to have only one queued at the time
 
-	struct SubscriberInfo {
-		px4::atomic<pid_t> thread;
-		px4_sem_t sem;
-		px4::atomic<int> ref_cnt;
-	};
+	class GlobalSemPool
+	{
+	public:
+		void init();
+		void set(int8_t i, int val) { px4_sem_init(&_global_sem[i].sem, 0, val); }
+		int8_t reserve(bool one_per_process = true);
+		void free(int8_t i);
+		void take(int8_t i) { do {} while (px4_sem_wait(&_global_sem[i].sem) != 0); }
+		void take_timedwait(int8_t i, struct timespec *abstime) { px4_sem_timedwait(&_global_sem[i].sem, abstime); }
 
-	SubscriberInfo _subscriber_threads[MAX_POLLING_THREADS];
+		void release(int8_t i) {px4_sem_post(&_global_sem[i].sem); }
+
+	private:
+
+		void lock()
+		{
+			do {} while (px4_sem_wait(&_semLock) != 0);
+		}
+		void unlock() { px4_sem_post(&_semLock); }
+		struct GlobalLock {
+			pid_t process;
+			uint8_t ref_cnt;
+			px4_sem_t sem;
+		};
+
+		GlobalLock _global_sem[NUM_GLOBAL_SEMS];
+		px4_sem_t _semLock;
+	} g_sem_pool;
+
 };
 
 #endif /* _uORBManager_hpp_ */

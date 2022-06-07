@@ -67,7 +67,7 @@ public:
 		unregisterCallback();
 	};
 
-	bool registerCallback(bool poll = false)
+	bool registerCallback()
 	{
 		if (!_registered) {
 			if (!orb_advert_valid(_subscription.get_node())) {
@@ -77,7 +77,7 @@ public:
 				}
 			}
 
-			if (orb_advert_valid(_subscription.get_node()) && Manager::register_callback(_subscription.get_node(), this, poll)) {
+			if (orb_advert_valid(_subscription.get_node()) && DeviceNode::register_callback(_subscription.get_node(), this)) {
 				_registered = true;
 			}
 		}
@@ -85,10 +85,10 @@ public:
 		return _registered;
 	}
 
-	void unregisterCallback(bool poll = false)
+	void unregisterCallback()
 	{
 		if (orb_advert_valid(_subscription.get_node())) {
-			Manager::unregister_callback(_subscription.get_node(), this, poll);
+			DeviceNode::unregister_callback(_subscription.get_node(), this);
 		}
 
 		_registered = false;
@@ -181,7 +181,7 @@ private:
 	uint8_t _required_updates{0};
 };
 
-class SubscriptionPollable : public SubscriptionCallback
+class SubscriptionPollable : public SubscriptionInterval
 {
 public:
 	/**
@@ -191,24 +191,17 @@ public:
 	 * @param instance The instance for multi sub.
 	 */
 	SubscriptionPollable(const orb_metadata *meta, uint8_t instance = 0) :
-		SubscriptionCallback(meta, 0, instance),
-		_revents{0}
+		SubscriptionInterval(meta, 0, instance)
 	{
 	}
 
 	virtual ~SubscriptionPollable() = default;
 
-	void call() override
+	orb_pollevent_t unregisterPoll() { return DeviceNode::unregister_poll(_subscription.get_node(), this); }
+	void registerPoll(int8_t lock)
 	{
-		/* Mark events */
-		_revents |= POLLIN;
+		DeviceNode::register_poll(_subscription.get_node(), this, lock);
 	}
-
-	orb_pollevent_t getRevents() { return _revents; }
-	void clearRevents() { _revents = 0; }
-
-private:
-	orb_pollevent_t _revents{0};
 };
 
 } // namespace uORB

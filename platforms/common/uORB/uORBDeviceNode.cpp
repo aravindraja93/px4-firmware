@@ -248,6 +248,7 @@ uORB::DeviceNode::DeviceNode(const struct orb_metadata *meta, const uint8_t inst
 	}
 
 	for (auto &item : _sigwaiters) {
+		item.subscriber = nullptr;
 		item.pid = -1;
 	}
 }
@@ -400,6 +401,10 @@ uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 				event.pid = -1;
 				Manager::freeThreadLock(event.lock);
 			}
+
+		} else if (event.subscriber != nullptr) {
+			event.revents |= POLLIN;
+			Manager::unlockAdvertising(event.lock);
 		}
 	}
 
@@ -649,6 +654,7 @@ void uORB::DeviceNode::orb_callback(int signo, siginfo_t *si_info, void *data)
 	 * executing one, so we can allow queueing another
 	 * for this process
 	 */
+
 	EventWaitItem *event = static_cast<EventWaitItem *>(si_info->si_value.sival_ptr);
 
 	if (signo != SIGRTMIN) {
@@ -656,27 +662,125 @@ void uORB::DeviceNode::orb_callback(int signo, siginfo_t *si_info, void *data)
 	}
 
 	Manager::unlockAdvertising(event->lock);
-	event->subscriber->call();
+	static_cast<uORB::SubscriptionCallback *>(event->subscriber)->call();
 }
 
 bool
-uORB::DeviceNode::register_signalling(uORB::SubscriptionCallback *callback_sub)
+uORB::DeviceNode::register_poll(orb_advert_t &node_handle, uORB::SubscriptionPollable *callback_sub, int8_t lock)
 {
 	bool ret = false;
+	uORB::DeviceNode *n = node(node_handle);
 
 	if (callback_sub != nullptr) {
-		lock();
-		pid_t pid = getpid();
+		n->lock();
 
-		for (auto &existing_callbacks : _sigwaiters) {
-			// prevent duplicate registrations
-			if (pid == existing_callbacks.pid && callback_sub == existing_callbacks.subscriber) {
-				unlock();
-				PX4_WARN("Duplicate callback registration for PID %d\n", pid);
+		for (auto &waiter : n->_sigwaiters) {
+			// prevent duplicate registrations TOOD: remove this check
+			if (callback_sub == waiter.subscriber) {
+				n->unlock();
+				PX4_ERR("Duplicate poll registration \n");
 				return true;
 			}
 
-			if (existing_callbacks.pid == -1) {
+			if (waiter.subscriber == callback_sub || waiter.subscriber == nullptr) {
+				waiter.lock = lock;
+				waiter.subscriber = callback_sub;
+				waiter.revents = 0;
+				waiter.pid = -1;
+				ret = true;
+				break;
+			}
+		}
+
+		n->unlock();
+
+		if (!ret) {
+			PX4_ERR("registration fail\n");
+		}
+
+	}
+
+	return ret;
+}
+
+orb_pollevent_t
+uORB::DeviceNode::unregister_poll(orb_advert_t &node_handle, uORB::SubscriptionPollable *callback_sub)
+{
+	orb_pollevent_t revents = 0;
+	uORB::DeviceNode *n = node(node_handle);
+
+	if (callback_sub != nullptr) {
+		n->lock();
+
+		for (auto &waiter : n->_sigwaiters) {
+			if (waiter.subscriber == callback_sub) {
+				waiter.subscriber = nullptr;
+				waiter.pid = -1;
+				revents = waiter.revents;
+			}
+		}
+
+		n->unlock();
+	}
+
+	return revents;
+}
+
+#ifdef CONFIG_BUILD_FLAT
+bool
+uORB::DeviceNode::register_callback(orb_advert_t &node_handle, uORB::SubscriptionCallback *callback_sub)
+{
+	uORB::DeviceNode *n = node(node_handle);
+
+	if (callback_sub != nullptr) {
+		irqstate_t flags = px4_enter_critical_section();
+
+		// prevent duplicate registrations
+		for (auto existing_callbacks : n->_callbacks) {
+			if (callback_sub == existing_callbacks) {
+				px4_leave_critical_section(flags);
+				return true;
+			}
+		}
+
+		n->_callbacks.add(callback_sub);
+		px4_leave_critical_section(flags);
+		return true;
+	}
+
+	return false;
+}
+
+void
+uORB::DeviceNode::unregister_callback(orb_advert_t &node_handle, uORB::SubscriptionCallback *callback_sub)
+{
+	irqstate_t flags = px4_enter_critical_section();
+	uORB::DeviceNode *n = node(node_handle);
+	n->_callbacks.remove(callback_sub);
+	px4_leave_critical_section(flags);
+}
+
+#else
+
+bool
+uORB::DeviceNode::register_callback(orb_advert_t &node_handle, uORB::SubscriptionCallback *callback_sub)
+{
+	bool ret = false;
+	DeviceNode *n = node(node_handle);
+
+	if (callback_sub != nullptr) {
+		n->lock();
+		pid_t pid = getpid();
+
+		for (auto &existing_callbacks : n->_sigwaiters) {
+			// prevent duplicate registrations
+			if (callback_sub == existing_callbacks.subscriber) {
+				n->unlock();
+				PX4_WARN("Duplicate callback registration for subscriber\n");
+				return true;
+			}
+
+			if (existing_callbacks.subscriber == nullptr) {
 				existing_callbacks.lock = Manager::getThreadLock();
 
 				if (existing_callbacks.lock >= 0) {
@@ -717,9 +821,11 @@ uORB::DeviceNode::register_signalling(uORB::SubscriptionCallback *callback_sub)
 			act.sa_flags = SA_SIGINFO;
 
 			ret = sigaction(SIGRTMIN, &act, &old) == 0;
+
+			PX4_ERR("registerd for pid %d\n", pid);
 		}
 
-		unlock();
+		n->unlock();
 	}
 
 	if (!ret) {
@@ -730,50 +836,22 @@ uORB::DeviceNode::register_signalling(uORB::SubscriptionCallback *callback_sub)
 }
 
 void
-uORB::DeviceNode::unregister_signalling(uORB::SubscriptionCallback *callback_sub)
+uORB::DeviceNode::unregister_callback(orb_advert_t &node_handle, uORB::SubscriptionCallback *callback_sub)
 {
-	lock();
+	uORB::DeviceNode *n = node(node_handle);
+	n->lock();
 
 	pid_t pid = getpid();
 
-	for (auto &existing_callbacks : _sigwaiters) {
+	for (auto &existing_callbacks : n->_sigwaiters) {
 		if (callback_sub == existing_callbacks.subscriber && pid == existing_callbacks.pid) {
 			existing_callbacks.pid = -1;
+			existing_callbacks.subscriber = nullptr;
 			Manager::freeThreadLock(existing_callbacks.lock);
 		}
 	}
 
-	unlock();
+	n->unlock();
 }
 
-#ifdef CONFIG_BUILD_FLAT
-bool
-uORB::DeviceNode::register_callback(uORB::SubscriptionCallback *callback_sub)
-{
-	if (callback_sub != nullptr) {
-		irqstate_t flags = px4_enter_critical_section();
-
-		// prevent duplicate registrations
-		for (auto existing_callbacks : _callbacks) {
-			if (callback_sub == existing_callbacks) {
-				px4_leave_critical_section(flags);
-				return true;
-			}
-		}
-
-		_callbacks.add(callback_sub);
-		px4_leave_critical_section(flags);
-		return true;
-	}
-
-	return false;
-}
-
-void
-uORB::DeviceNode::unregister_callback(uORB::SubscriptionCallback *callback_sub)
-{
-	irqstate_t flags = px4_enter_critical_section();
-	_callbacks.remove(callback_sub);
-	px4_leave_critical_section(flags);
-}
 #endif

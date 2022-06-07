@@ -184,6 +184,7 @@ public:
 protected:
 
 	friend class SubscriptionCallback;
+	friend class SubscriptionPollable;
 	friend class SubscriptionCallbackWorkItem;
 
 	orb_advert_t &get_node() { return _node; }

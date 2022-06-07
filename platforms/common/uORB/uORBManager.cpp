@@ -255,10 +255,7 @@ uORB::Manager::Manager()
 		PX4_DEBUG("SEM INIT FAIL: ret %d", ret);
 	}
 
-	for (auto &sub_thread : _subscriber_threads) {
-		sub_thread.thread.store(-1);
-		px4_sem_init(&sub_thread.sem, 0, 1);
-	}
+	g_sem_pool.init();
 }
 
 uORB::Manager::~Manager()
@@ -372,7 +369,7 @@ int uORB::Manager::orb_unadvertise(orb_advert_t &handle)
 // Should only be called from old interface
 orb_sub_t uORB::Manager::orb_subscribe(const struct orb_metadata *meta)
 {
-	uORB::SubscriptionCallback *sub = new uORB::SubscriptionPollable(meta);
+	uORB::SubscriptionInterval *sub = new uORB::SubscriptionPollable(meta);
 
 	if (sub && !sub->valid()) {
 		// force topic creation
@@ -385,7 +382,7 @@ orb_sub_t uORB::Manager::orb_subscribe(const struct orb_metadata *meta)
 // Should only be called from old interface
 orb_sub_t uORB::Manager::orb_subscribe_multi(const struct orb_metadata *meta, unsigned instance)
 {
-	uORB::SubscriptionCallback *sub = new uORB::SubscriptionPollable(meta, instance);
+	uORB::SubscriptionInterval *sub = new uORB::SubscriptionPollable(meta, instance);
 
 	if (sub && !sub->valid()) {
 		// force topic creation
@@ -397,7 +394,7 @@ orb_sub_t uORB::Manager::orb_subscribe_multi(const struct orb_metadata *meta, un
 
 int uORB::Manager::orb_unsubscribe(orb_sub_t handle)
 {
-	delete (static_cast<SubscriptionCallback *>(handle));
+	delete (static_cast<SubscriptionInterval *>(handle));
 	return PX4_OK;
 }
 
@@ -417,7 +414,7 @@ int uORB::Manager::orb_publish(const struct orb_metadata *meta, orb_advert_t &ha
 
 int uORB::Manager::orb_copy(const struct orb_metadata *meta, orb_sub_t handle, void *buffer)
 {
-	if (!(static_cast<SubscriptionCallback *>(handle))->copy(buffer)) {
+	if (!(static_cast<SubscriptionInterval *>(handle))->copy(buffer)) {
 		errno = EIO;
 		return PX4_ERROR;
 	}
@@ -427,7 +424,7 @@ int uORB::Manager::orb_copy(const struct orb_metadata *meta, orb_sub_t handle, v
 
 int uORB::Manager::orb_check(orb_sub_t handle, bool *updated)
 {
-	*updated = ((uORB::SubscriptionCallback *)handle)->updated();
+	*updated = ((uORB::SubscriptionInterval *)handle)->updated();
 	return PX4_OK;
 }
 
@@ -445,82 +442,52 @@ int uORB::Manager::orb_get_interval(orb_sub_t handle, unsigned *interval)
 
 int uORB::Manager::orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeout)
 {
-	sigset_t waitset;
-	siginfo_t info;
-	struct timespec to;
-
-	/* Convert ms to us and us to timespec */
-	abstime_to_ts(&to, timeout * 1000);
-
-	// NOTE: This function can be only called on subscriptions created by the old
-	// interface. The new one doesn't support poll. So we can cast all subscriptions
-	// in here to SubscriptionPollable.
-
 	SubscriptionPollable *sub;
+
+	// Every thread needs its own semaphore for poll
+	int8_t lock_idx = g_sem_pool.reserve(false);
+
+	if (lock_idx < 0) {
+		PX4_ERR("Out of thread locks");
+		return 0;
+	}
+
+	// Initialize the semaphore for locking
+	g_sem_pool.set(lock_idx, 0);
 
 	for (unsigned i = 0; i < nfds; i++) {
 		sub = static_cast<SubscriptionPollable *>(fds[i].fd);
-		sub->clearRevents();
-		sub->registerCallback(true);
+		sub->registerPoll(lock_idx);
 	}
 
-	int sig_ret = sigtimedwait(&waitset, &info, &to);
+	// Calculate timeout time
+	struct timespec to;
+	px4_clock_gettime(CLOCK_REALTIME, &to);
+	hrt_abstime now = ts_to_abstime(&to);
+	abstime_to_ts(&to, now + timeout * 1000);
+
+	// First advertiser will wake us up, or it might have happened already
+	// during registration above
+
+	g_sem_pool.take_timedwait(lock_idx, &to);
+
 	int count = 0;
 
 	for (unsigned i = 0; i < nfds; i++) {
 		sub = static_cast<SubscriptionPollable *>(fds[i].fd);
-		sub->unregisterCallback(true);
-		fds[i].revents = sub->getRevents();
+		fds[i].revents = sub->unregisterPoll();
 
 		if (fds[i].revents & POLLIN) {
 			count++;
 		}
 	}
 
-	// The sigtimedwait could be interrupted by some other, unblocked, signal, but
-	// that should be fine. Caller anyhow checks the flags and/or count
-	if (count > 0 && sig_ret < 0 && errno != EINTR) {
-		PX4_ERR("sigtimedwait return on error %d, but there are revents?\n", errno);
-	}
+	// Reset the semaphore back to mutex ( and recover from releasing
+	// multiple times )
+	g_sem_pool.set(lock_idx, 1);
+	g_sem_pool.free(lock_idx);
 
 	return count;
-}
-
-void uORB::Manager::freeThreadLock(int i)
-{
-	uORB::Manager *this_ = uORB::Manager::get_instance();
-
-	if (this_->_subscriber_threads[i].ref_cnt.fetch_sub(1) == 1) {
-		this_->_subscriber_threads[i].thread.store(-1);
-	}
-}
-
-int8_t uORB::Manager::getThreadLock()
-{
-	pid_t desired = getpid();
-	uORB::Manager *this_ = uORB::Manager::get_instance();
-
-	// First check if there is a lock already allocated for this PID
-	for (int8_t i = 0; i < MAX_POLLING_THREADS; i++) {
-		if (this_->_subscriber_threads[i].thread.load() == desired) {
-			// Found a lock already allocated for this thread, return the index
-			this_->_subscriber_threads[i].ref_cnt.fetch_add(1);
-			return i;
-		}
-	}
-
-	// Find a new lock and allocate it for this thread
-	pid_t expected = -1;
-
-	for (int8_t i = 0; i < MAX_POLLING_THREADS; i++) {
-		if (this_->_subscriber_threads[i].thread.compare_exchange(&expected, desired)) {
-			this_->_subscriber_threads[i].ref_cnt.store(1);
-			return i;
-		}
-	}
-
-	PX4_ERR("Out of poll locks\n");
-	return -1;
 }
 
 bool uORB::Manager::orb_add_internal_subscriber(ORB_ID orb_id, uint8_t instance, unsigned *initial_generation,
@@ -600,36 +567,6 @@ bool uORB::Manager::orb_data_copy(orb_advert_t &node_handle, void *dst, unsigned
 	return ret;
 }
 
-// add item to list of work items to schedule on node update
-bool uORB::Manager::register_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub, bool poll)
-{
-#ifdef CONFIG_BUILD_FLAT
-
-	if (!poll) {
-		return node(node_handle)->register_callback(callback_sub);
-
-	} else
-#endif
-	{
-		return node(node_handle)->register_signalling(callback_sub);
-	}
-}
-
-// remove item from list of work items
-void uORB::Manager::unregister_callback(orb_advert_t &node_handle, SubscriptionCallback *callback_sub, bool poll)
-{
-#ifdef CONFIG_BUILD_FLAT
-
-	if (!poll) {
-		node(node_handle)->unregister_callback(callback_sub);
-
-	} else
-#endif
-	{
-		node(node_handle)->unregister_signalling(callback_sub);
-	}
-}
-
 uint8_t uORB::Manager::orb_get_instance(orb_advert_t &node_handle)
 {
 	if (orb_advert_valid(node_handle)) {
@@ -637,6 +574,65 @@ uint8_t uORB::Manager::orb_get_instance(orb_advert_t &node_handle)
 	}
 
 	return -1;
+}
+
+void uORB::Manager::GlobalSemPool::init(void)
+{
+	for (auto &sem : _global_sem) {
+		sem.process = -1;
+		sem.ref_cnt = 0;
+		px4_sem_init(&sem.sem, 0, 1);
+	}
+
+	px4_sem_init(&_semLock, 0, 1);
+}
+
+void uORB::Manager::GlobalSemPool::free(int8_t i)
+{
+	lock();
+	_global_sem[i].ref_cnt--;
+
+	if (_global_sem[i].ref_cnt == 0) {
+		_global_sem[i].process = -1;
+	}
+
+	unlock();
+}
+
+int8_t uORB::Manager::GlobalSemPool::reserve(bool one_per_process)
+{
+	pid_t pid = getpid();
+	int8_t i;
+
+	lock();
+
+	// Check if already allocated for this process
+	if (one_per_process) {
+		for (i = 0; i < NUM_GLOBAL_SEMS; i++)
+			if (pid == _global_sem[i].process) {
+				_global_sem[i].ref_cnt++;
+				unlock();
+				return i;
+			}
+	}
+
+	// Find a new lock and allocate it for this thread
+	for (i = 0; i < NUM_GLOBAL_SEMS; i++) {
+		if (_global_sem[i].process == -1) {
+			_global_sem[i].process = pid;
+			_global_sem[i].ref_cnt++;
+			break;
+		}
+	}
+
+	unlock();
+
+	if (i == NUM_GLOBAL_SEMS) {
+		PX4_ERR("Out of global locks\n");
+		i = -1;
+	}
+
+	return i;
 }
 
 #ifdef ORB_COMMUNICATOR
