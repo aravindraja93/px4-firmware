@@ -2,9 +2,9 @@ name: tii-px4-sitl
 
 on:
   push:
-    branches: [ rel7_hotfix ]
+    branches: [ rel7-hotfix-DP-3039 ]
   pull_request:
-    branches: [ rel7_hotfix ]
+    branches: [ rel7-hotfix-DP-3039 ]
 
 jobs:
   tii-px4-sitl:
