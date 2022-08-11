@@ -518,7 +518,7 @@ public:
 
 	static void freeThreadLock(int i) {get_instance()->g_sem_pool.free(i);}
 
-	static int8_t getThreadLock() {return get_instance()->g_sem_pool.reserve(true);}
+	static int8_t getThreadLock() {return get_instance()->g_sem_pool.reserve(false);}
 
 private: // class methods
 	inline static uORB::DeviceNode *node(orb_advert_t handle) {return static_cast<uORB::DeviceNode *>(handle.node);}
@@ -701,8 +701,8 @@ private: //class methods
 	{
 	public:
 		void init();
-		void set(int8_t i, int val) { px4_sem_init(&_global_sem[i].sem, 0, val); }
-		int8_t reserve(bool one_per_process = true);
+		void set(int8_t i, int val) { px4_sem_destroy(&_global_sem[i].sem); px4_sem_init(&_global_sem[i].sem, 1, val); }
+		int8_t reserve(bool poll = false);
 		void free(int8_t i);
 		void take(int8_t i) { do {} while (px4_sem_wait(&_global_sem[i].sem) != 0); }
 		void take_timedwait(int8_t i, struct timespec *abstime) { px4_sem_timedwait(&_global_sem[i].sem, abstime); }
@@ -717,6 +717,7 @@ private: //class methods
 		}
 		void unlock() { px4_sem_post(&_semLock); }
 		struct GlobalLock {
+			bool poll;
 			pid_t process;
 			uint8_t ref_cnt;
 			px4_sem_t sem;
@@ -725,7 +726,6 @@ private: //class methods
 		GlobalLock _global_sem[NUM_GLOBAL_SEMS];
 		px4_sem_t _semLock;
 	} g_sem_pool;
-
 };
 
 #endif /* _uORBManager_hpp_ */

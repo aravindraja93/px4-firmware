@@ -193,6 +193,7 @@ orb_advert_t uORB::DeviceNode::advertise(const struct orb_metadata *meta, int *i
 		if (!orb_advert_valid(handle)) {
 			/* Doesn't exist, create */
 			handle = nodeOpen(meta, group_tries, true);
+			node(handle)->lock();
 			ret = PX4_OK;
 
 		} else {
@@ -200,6 +201,7 @@ orb_advert_t uORB::DeviceNode::advertise(const struct orb_metadata *meta, int *i
 			 * Claim it if not already advertised or is a single instance advertiser
 			 */
 			if (!is_advertised(handle) || !instance) {
+				node(handle)->lock();
 				ret = PX4_OK;
 
 			} else {
@@ -215,6 +217,7 @@ orb_advert_t uORB::DeviceNode::advertise(const struct orb_metadata *meta, int *i
 	if (orb_advert_valid(handle)) {
 		node(handle)->_advertiser_count++;
 		node(handle)->update_queue_size(queue_size);
+		node(handle)->unlock();
 	}
 
 	return handle;
@@ -241,7 +244,7 @@ uORB::DeviceNode::DeviceNode(const struct orb_metadata *meta, const uint8_t inst
 {
 	strncpy(_devname, path, sizeof(_devname));
 
-	int ret = px4_sem_init(&_lock, 0, 1);
+	int ret = px4_sem_init(&_lock, 1, 1);
 
 	if (ret != 0) {
 		PX4_DEBUG("SEM INIT FAIL: ret %d", ret);
@@ -370,9 +373,11 @@ uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 	/* Perform an atomic copy. */
 
 	lock();
+
 	remap_data(handle, true);
 
 	if (node_data(handle) == nullptr) {
+		unlock();
 		return -ENOMEM;
 	}
 
@@ -383,8 +388,6 @@ uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 
 	/* Mark at least one data has been published */
 	_data_valid = true;
-
-	unlock();
 
 	// callbacks and poll waiters
 	for (auto &event : _sigwaiters) {
@@ -416,6 +419,7 @@ uORB::DeviceNode::write(const char *buffer, size_t buflen, orb_advert_t &handle)
 	}
 
 #endif
+	unlock();
 
 	return get_meta()->o_size;
 }
@@ -675,14 +679,7 @@ uORB::DeviceNode::register_poll(orb_advert_t &node_handle, uORB::SubscriptionPol
 		n->lock();
 
 		for (auto &waiter : n->_sigwaiters) {
-			// prevent duplicate registrations TOOD: remove this check
-			if (callback_sub == waiter.subscriber) {
-				n->unlock();
-				PX4_ERR("Duplicate poll registration \n");
-				return true;
-			}
-
-			if (waiter.subscriber == callback_sub || waiter.subscriber == nullptr) {
+			if (waiter.subscriber == nullptr) {
 				waiter.lock = lock;
 				waiter.subscriber = callback_sub;
 				waiter.revents = 0;
@@ -821,8 +818,6 @@ uORB::DeviceNode::register_callback(orb_advert_t &node_handle, uORB::Subscriptio
 			act.sa_flags = SA_SIGINFO;
 
 			ret = sigaction(SIGRTMIN, &act, &old) == 0;
-
-			PX4_ERR("registerd for pid %d\n", pid);
 		}
 
 		n->unlock();

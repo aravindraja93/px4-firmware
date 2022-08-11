@@ -249,7 +249,7 @@ uORB::Manager::Manager()
 
 #endif /* ORB_USE_PUBLISHER_RULES */
 
-	int ret = px4_sem_init(&_lock, 0, 1);
+	int ret = px4_sem_init(&_lock, 1, 1);
 
 	if (ret != 0) {
 		PX4_DEBUG("SEM INIT FAIL: ret %d", ret);
@@ -400,7 +400,6 @@ int uORB::Manager::orb_unsubscribe(orb_sub_t handle)
 
 int uORB::Manager::orb_publish(const struct orb_metadata *meta, orb_advert_t &handle, const void *data)
 {
-
 #ifdef ORB_USE_PUBLISHER_RULES
 
 	if (handle == _Instance) {
@@ -445,7 +444,7 @@ int uORB::Manager::orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeo
 	SubscriptionPollable *sub;
 
 	// Every thread needs its own semaphore for poll
-	int8_t lock_idx = g_sem_pool.reserve(false);
+	int8_t lock_idx = g_sem_pool.reserve(true);
 
 	if (lock_idx < 0) {
 		PX4_ERR("Out of thread locks");
@@ -486,7 +485,6 @@ int uORB::Manager::orb_poll(orb_poll_struct_t *fds, unsigned int nfds, int timeo
 	// multiple times )
 	g_sem_pool.set(lock_idx, 1);
 	g_sem_pool.free(lock_idx);
-
 	return count;
 }
 
@@ -580,11 +578,12 @@ void uORB::Manager::GlobalSemPool::init(void)
 {
 	for (auto &sem : _global_sem) {
 		sem.process = -1;
+		sem.poll = false;
 		sem.ref_cnt = 0;
-		px4_sem_init(&sem.sem, 0, 1);
+		px4_sem_init(&sem.sem, 1, 1);
 	}
 
-	px4_sem_init(&_semLock, 0, 1);
+	px4_sem_init(&_semLock, 1, 1);
 }
 
 void uORB::Manager::GlobalSemPool::free(int8_t i)
@@ -594,12 +593,14 @@ void uORB::Manager::GlobalSemPool::free(int8_t i)
 
 	if (_global_sem[i].ref_cnt == 0) {
 		_global_sem[i].process = -1;
+		_global_sem[i].poll = false;
+
 	}
 
 	unlock();
 }
 
-int8_t uORB::Manager::GlobalSemPool::reserve(bool one_per_process)
+int8_t uORB::Manager::GlobalSemPool::reserve(bool poll)
 {
 	pid_t pid = getpid();
 	int8_t i;
@@ -607,21 +608,35 @@ int8_t uORB::Manager::GlobalSemPool::reserve(bool one_per_process)
 	lock();
 
 	// Check if already allocated for this process
-	if (one_per_process) {
-		for (i = 0; i < NUM_GLOBAL_SEMS; i++)
-			if (pid == _global_sem[i].process) {
+	if (!poll) {
+		for (i = 0; i < NUM_GLOBAL_SEMS; i++) {
+			if (!_global_sem[i].poll && pid == _global_sem[i].process) {
 				_global_sem[i].ref_cnt++;
 				unlock();
 				return i;
 			}
-	}
+		}
 
-	// Find a new lock and allocate it for this thread
-	for (i = 0; i < NUM_GLOBAL_SEMS; i++) {
-		if (_global_sem[i].process == -1) {
-			_global_sem[i].process = pid;
-			_global_sem[i].ref_cnt++;
-			break;
+		// Find a new lock and allocate it for this thread
+		for (i = 0; i < NUM_GLOBAL_SEMS; i++) {
+			if (_global_sem[i].process == -1) {
+				_global_sem[i].process = pid;
+				_global_sem[i].ref_cnt++;
+				_global_sem[i].poll = false;
+				break;
+			}
+		}
+
+	} else {
+
+		// Find a new lock and allocate it for this thread
+		for (i = 0; i < NUM_GLOBAL_SEMS; i++) {
+			if (_global_sem[i].process == -1) {
+				_global_sem[i].process = pid; // not really used except for marking as "used"
+				_global_sem[i].ref_cnt++; // not really used
+				_global_sem[i].poll = true;
+				break;
+			}
 		}
 	}
 
