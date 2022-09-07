@@ -66,6 +66,8 @@ extern int mpfs_set_entrypt(uint64_t hartid, uintptr_t entry);
 
 #define APP_SIZE_MAX			BOARD_FLASH_SIZE
 
+#define SECURE_BOOT_TEST // temporary flag for secure boot testing
+
 // Reads/writes to flash are done in this size chunks
 #define FLASH_RW_BLOCK 4096
 
@@ -690,50 +692,35 @@ led_toggle(unsigned led)
 void
 arch_do_jump(const uint32_t *app_base)
 {
-	_alert("arch_do_jump %d  \n", u_boot_loaded);
+#ifndef SECURE_BOOT_TEST
 	/* seL4 on hart 1 */
-/*
 	if (sel4_loaded) {
 #if CONFIG_MPFS_HART1_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		_alert("Jump to SEL4 0x%lx\n", CONFIG_MPFS_HART1_ENTRYPOINT);
 		*(volatile uint32_t *)MPFS_CLINT_MSIP1 = 0x01U;
 #endif
-
 	}
-*/
-
 
 	/* PX4 on hart 2 */
-
-/*
 #if CONFIG_MPFS_HART2_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 	_alert("Jump to PX4 0x%lx\n", (uint64_t)app_base);
 	mpfs_set_entrypt(2, (uintptr_t)app_base);
 	*(volatile uint32_t *)MPFS_CLINT_MSIP2 = 0x01U;
 #endif
 	/* Linux on harts 3,4 */
-
-
-
-
 	if (u_boot_loaded) {
 #if CONFIG_MPFS_HART3_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		_alert("Jump to U-boot 0x%lx\n", CONFIG_MPFS_HART3_ENTRYPOINT);
 		*(volatile uint32_t *)MPFS_CLINT_MSIP3 = 0x01U;
 #endif
 
-
+#ifndef SECURE_BOOT_TEST
 #if CONFIG_MPFS_HART4_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
-/*
-//		_alert("SH_Edit Jump to U-boot 4  \n ", (volatile uint32_t *) CONFIG_MPFS_HART4_ENTRYPOINT );
 		*(volatile uint32_t *)MPFS_CLINT_MSIP4 = 0x01U;
-*/
+#endif
 #endif
 
-
-
 	}
-
 
 	// TODO. monitor?
 	while (1) {
