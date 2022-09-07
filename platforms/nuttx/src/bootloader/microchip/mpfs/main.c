@@ -57,6 +57,7 @@
 #include <nuttx/board.h>
 
 #include "image_toc.h"
+#include "crypto.h"
 
 extern int sercon_main(int c, char **argv);
 extern int mpfs_set_entrypt(uint64_t hartid, uintptr_t entry);
@@ -83,6 +84,15 @@ extern int mpfs_set_entrypt(uint64_t hartid, uintptr_t entry);
 #ifdef CONFIG_MMCSD
 static int px4_fd = -1;
 static bool sdcard_mounted;
+#endif
+
+
+#ifdef CONFIG_SIGNED_UBOOT
+
+#define UBOOT_BINARY		"u-boot_signed.bin"
+#else
+
+#define UBOOT_BINARY		"u-boot.bin"
 #endif
 
 static struct mtd_dev_s *mtd = 0;
@@ -177,7 +187,7 @@ void partition_handler(FAR struct partition_s *part, FAR void *arg)
 	}
 }
 
-static int load_sdcard_images(const char *name, uint64_t loadaddr)
+static ssize_t load_sdcard_images(const char *name, uint64_t loadaddr)
 {
 	struct stat file_stat;
 
@@ -190,7 +200,7 @@ static int load_sdcard_images(const char *name, uint64_t loadaddr)
 		if (got > 0 && got == (size_t)file_stat.st_size) {
 			_alert("Loading %s OK\n", name);
 			close(mmcsd_fd);
-			return 0;
+			return got;
 		}
 	}
 
@@ -669,37 +679,56 @@ led_toggle(unsigned led)
 	}
 }
 
-/* Make the actual jump to app */
+//* Make the actual jump to app */
 void
 arch_do_jump(const uint32_t *app_base)
 {
+	_alert("arch_do_jump %d  \n", u_boot_loaded);
 	/* seL4 on hart 1 */
+/*
 	if (sel4_loaded) {
 #if CONFIG_MPFS_HART1_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		_alert("Jump to SEL4 0x%lx\n", CONFIG_MPFS_HART1_ENTRYPOINT);
 		*(volatile uint32_t *)MPFS_CLINT_MSIP1 = 0x01U;
 #endif
+
 	}
+*/
+
 
 	/* PX4 on hart 2 */
+
+/*
 #if CONFIG_MPFS_HART2_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 	_alert("Jump to PX4 0x%lx\n", (uint64_t)app_base);
 	mpfs_set_entrypt(2, (uintptr_t)app_base);
 	*(volatile uint32_t *)MPFS_CLINT_MSIP2 = 0x01U;
 #endif
+*/
 
 	/* Linux on harts 3,4 */
+
+
+
+
 	if (u_boot_loaded) {
 #if CONFIG_MPFS_HART3_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		_alert("Jump to U-boot 0x%lx\n", CONFIG_MPFS_HART3_ENTRYPOINT);
 		*(volatile uint32_t *)MPFS_CLINT_MSIP3 = 0x01U;
 #endif
 
+
 #if CONFIG_MPFS_HART4_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
+/*
+//		_alert("SH_Edit Jump to U-boot 4  \n ", (volatile uint32_t *) CONFIG_MPFS_HART4_ENTRYPOINT );
 		*(volatile uint32_t *)MPFS_CLINT_MSIP4 = 0x01U;
+*/
 #endif
 
+
+
 	}
+
 
 	// TODO. monitor?
 	while (1) {
@@ -734,15 +763,16 @@ static size_t get_image_size(void)
 static int loader_main(int argc, char *argv[])
 {
 	ssize_t image_sz = 0;
+	ssize_t uboot_size = 0;
 	loading_status = IN_PROGRESS;
 
 #if defined(CONFIG_MMCSD)
-	int ret = 0;
+	ssize_t ret = 0;
 
 	if (sdcard_mounted) {
 		ret = load_sdcard_images("/sdcard/boot/" IMAGE_FN, APP_LOAD_ADDRESS);
 
-		if (ret == 0) {
+		if (ret > 0) {
 			image_sz = get_image_size();
 
 			if (image_sz > 0) {
@@ -791,22 +821,33 @@ static int loader_main(int argc, char *argv[])
 #if defined(CONFIG_OPENSBI) && defined(CONFIG_MMCSD)
 
 	if (sdcard_mounted) {
-		ret = load_sdcard_images("/sdcard/boot/u-boot.bin", CONFIG_MPFS_HART3_ENTRYPOINT);
+		uboot_size = load_sdcard_images("/sdcard/boot/"UBOOT_BINARY, CONFIG_MPFS_HART3_ENTRYPOINT);
+		if (uboot_size > 0) {
+#ifdef CONFIG_SIGNED_UBOOT
+			if (verify_boot_image(0, (void *)CONFIG_MPFS_HART3_ENTRYPOINT, uboot_size)) {
+				u_boot_loaded = true;
 
-		if (ret) {
-			_err("failed\n");
+			} else {
+				u_boot_loaded = false;
+				/* Wipe the memory */
+				memset((void *)CONFIG_MPFS_HART3_ENTRYPOINT, 0, uboot_size);
+				_alert("u-boot Authentication Failed\n");
+			}
+#endif
+		    	u_boot_loaded = true;
 
 		} else {
-			u_boot_loaded = true;
+			_alert("u-boot loading failed\n");
+			u_boot_loaded = false;
 		}
 
 		ret = load_sdcard_images("/sdcard/boot/seL4.bin", CONFIG_MPFS_HART1_ENTRYPOINT);
 
-		if (ret) {
-			_err("failed\n");
-
-		} else {
+		if (ret > 0) {
 			sel4_loaded = true;
+		} else {
+			sel4_loaded = false;
+			_alert("sel4 loading failed\n");
 		}
 	}
 
