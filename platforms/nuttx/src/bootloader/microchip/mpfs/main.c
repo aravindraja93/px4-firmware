@@ -686,36 +686,54 @@ led_toggle(unsigned led)
 	}
 }
 
-/* Make the actual jump to app */
+//* Make the actual jump to app */
 void
 arch_do_jump(const uint32_t *app_base)
 {
+	_alert("arch_do_jump %d  \n", u_boot_loaded);
 	/* seL4 on hart 1 */
+/*
 	if (sel4_loaded) {
 #if CONFIG_MPFS_HART1_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		_alert("Jump to SEL4 0x%lx\n", CONFIG_MPFS_HART1_ENTRYPOINT);
 		*(volatile uint32_t *)MPFS_CLINT_MSIP1 = 0x01U;
 #endif
+
 	}
+*/
+
 
 	/* PX4 on hart 2 */
+
+/*
 #if CONFIG_MPFS_HART2_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 	_alert("Jump to PX4 0x%lx\n", (uint64_t)app_base);
 	mpfs_set_entrypt(2, (uintptr_t)app_base);
 	*(volatile uint32_t *)MPFS_CLINT_MSIP2 = 0x01U;
 #endif
 	/* Linux on harts 3,4 */
+
+
+
+
 	if (u_boot_loaded) {
 #if CONFIG_MPFS_HART3_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		_alert("Jump to U-boot 0x%lx\n", CONFIG_MPFS_HART3_ENTRYPOINT);
 		*(volatile uint32_t *)MPFS_CLINT_MSIP3 = 0x01U;
 #endif
 
+
 #if CONFIG_MPFS_HART4_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
+/*
+//		_alert("SH_Edit Jump to U-boot 4  \n ", (volatile uint32_t *) CONFIG_MPFS_HART4_ENTRYPOINT );
 		*(volatile uint32_t *)MPFS_CLINT_MSIP4 = 0x01U;
+*/
 #endif
 
+
+
 	}
+
 
 	// TODO. monitor?
 	while (1) {
