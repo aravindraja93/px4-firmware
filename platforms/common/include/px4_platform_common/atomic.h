@@ -58,10 +58,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#if defined(__PX4_NUTTX)
-# include <nuttx/irq.h>
-#endif // __PX4_NUTTX
-
 namespace px4
 {
 
@@ -84,7 +80,7 @@ public:
 	 */
 	inline T load() const
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -93,7 +89,7 @@ public:
 			return val;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_load_n(&_value, __ATOMIC_SEQ_CST);
 		}
@@ -104,7 +100,7 @@ public:
 	 */
 	inline void store(T value)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -112,7 +108,7 @@ public:
 			leave_critical_section(flags);
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			__atomic_store(&_value, &value, __ATOMIC_SEQ_CST);
 		}
@@ -124,7 +120,7 @@ public:
 	 */
 	inline T fetch_add(T num)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -133,7 +129,7 @@ public:
 			return ret;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_fetch_add(&_value, num, __ATOMIC_SEQ_CST);
 		}
@@ -145,7 +141,7 @@ public:
 	 */
 	inline T fetch_sub(T num)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -154,7 +150,7 @@ public:
 			return ret;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_fetch_sub(&_value, num, __ATOMIC_SEQ_CST);
 		}
@@ -166,7 +162,7 @@ public:
 	 */
 	inline T fetch_and(T num)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -176,7 +172,7 @@ public:
 			return val;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_fetch_and(&_value, num, __ATOMIC_SEQ_CST);
 		}
@@ -188,7 +184,7 @@ public:
 	 */
 	inline T fetch_xor(T num)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -198,7 +194,7 @@ public:
 			return val;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_fetch_xor(&_value, num, __ATOMIC_SEQ_CST);
 		}
@@ -210,7 +206,7 @@ public:
 	 */
 	inline T fetch_or(T num)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -220,7 +216,7 @@ public:
 			return val;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_fetch_or(&_value, num, __ATOMIC_SEQ_CST);
 		}
@@ -232,7 +228,7 @@ public:
 	 */
 	inline T fetch_nand(T num)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -242,7 +238,7 @@ public:
 			return ret;
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_fetch_nand(&_value, num, __ATOMIC_SEQ_CST);
 		}
@@ -258,7 +254,7 @@ public:
 	 */
 	inline bool compare_exchange(T *expected, T desired)
 	{
-#if defined(__PX4_NUTTX)
+#if defined(__PX4_ATOMIC_NEED_IRQ_LOCK)
 
 		if (!__atomic_always_lock_free(sizeof(T), 0)) {
 			irqstate_t flags = enter_critical_section();
@@ -275,7 +271,7 @@ public:
 			}
 
 		} else
-#endif // __PX4_NUTTX
+#endif // __PX4_ATOMIC_NEED_IRQ_LOCK
 		{
 			return __atomic_compare_exchange(&_value, expected, &desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 		}
