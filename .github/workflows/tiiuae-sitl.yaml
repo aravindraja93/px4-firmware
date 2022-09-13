@@ -2,7 +2,6 @@ name: tii-px4-sitl
 
 on:
   push:
-    branches: [ master ]
   pull_request:
 
 jobs:
