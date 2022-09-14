@@ -66,8 +66,6 @@ extern int mpfs_set_entrypt(uint64_t hartid, uintptr_t entry);
 
 #define APP_SIZE_MAX			BOARD_FLASH_SIZE
 
-#define SECURE_BOOT_TEST // temporary flag for secure boot testing
-
 // Reads/writes to flash are done in this size chunks
 #define FLASH_RW_BLOCK 4096
 
@@ -688,11 +686,10 @@ led_toggle(unsigned led)
 	}
 }
 
-//* Make the actual jump to app */
+/* Make the actual jump to app */
 void
 arch_do_jump(const uint32_t *app_base)
 {
-#ifndef SECURE_BOOT_TEST
 	/* seL4 on hart 1 */
 	if (sel4_loaded) {
 #if CONFIG_MPFS_HART1_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
@@ -714,10 +711,8 @@ arch_do_jump(const uint32_t *app_base)
 		*(volatile uint32_t *)MPFS_CLINT_MSIP3 = 0x01U;
 #endif
 
-#ifndef SECURE_BOOT_TEST
 #if CONFIG_MPFS_HART4_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		*(volatile uint32_t *)MPFS_CLINT_MSIP4 = 0x01U;
-#endif
 #endif
 
 	}
