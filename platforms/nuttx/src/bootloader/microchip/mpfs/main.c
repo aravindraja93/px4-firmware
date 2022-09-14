@@ -66,8 +66,6 @@ extern int mpfs_set_entrypt(uint64_t hartid, uintptr_t entry);
 
 #define APP_SIZE_MAX			BOARD_FLASH_SIZE
 
-#define SECURE_BOOT_TEST // temporary flag for secure boot testing
-
 // Reads/writes to flash are done in this size chunks
 #define FLASH_RW_BLOCK 4096
 
@@ -215,6 +213,7 @@ static ssize_t load_sdcard_images(const char *name, uint64_t loadaddr)
 static void
 board_init(void)
 {
+	_alert("board init\n");
 	/* fix up the max firmware size, we have to read memory to get this */
 	board_info.fw_size = APP_SIZE_MAX;
 
@@ -686,11 +685,10 @@ led_toggle(unsigned led)
 	}
 }
 
-//* Make the actual jump to app */
+/* Make the actual jump to app */
 void
 arch_do_jump(const uint32_t *app_base)
 {
-#ifndef SECURE_BOOT_TEST
 	/* seL4 on hart 1 */
 	if (sel4_loaded) {
 #if CONFIG_MPFS_HART1_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
@@ -705,7 +703,6 @@ arch_do_jump(const uint32_t *app_base)
 	mpfs_set_entrypt(2, (uintptr_t)app_base);
 	*(volatile uint32_t *)MPFS_CLINT_MSIP2 = 0x01U;
 #endif
-#endif
 	/* Linux on harts 3,4 */
 	if (u_boot_loaded) {
 #if CONFIG_MPFS_HART3_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
@@ -713,10 +710,8 @@ arch_do_jump(const uint32_t *app_base)
 		*(volatile uint32_t *)MPFS_CLINT_MSIP3 = 0x01U;
 #endif
 
-#ifndef SECURE_BOOT_TEST
 #if CONFIG_MPFS_HART4_ENTRYPOINT != 0xFFFFFFFFFFFFFFFF
 		*(volatile uint32_t *)MPFS_CLINT_MSIP4 = 0x01U;
-#endif
 #endif
 
 	}
