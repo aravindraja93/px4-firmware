@@ -90,6 +90,7 @@ static bool sdcard_mounted;
 #ifdef CONFIG_SIGNED_UBOOT
 
 #define UBOOT_BINARY		"u-boot_signed.bin"
+#define UBOOT_SIGNATURE_SIZE	64
 #else
 
 #define UBOOT_BINARY		"u-boot.bin"
@@ -749,6 +750,25 @@ static size_t get_image_size(void)
 }
 #endif
 
+#ifdef CONFIG_SIGNED_UBOOT
+bool verify_image(void *image_start, size_t image_size, size_t signature_size)
+{
+	uint8_t signature_idx = 1;
+	uint16_t index = 0;
+
+	uint8_t *image_end = (uint8_t *)image_start + image_size - signature_size;
+	uint8_t *signature_start = (uint8_t *)image_start + image_size - signature_size;
+	uint8_t *signature_end = (uint8_t *)image_start + image_size;
+
+	image_toc_entry_t toc_entries[2] = {
+		{"IMG ", image_start, image_end, 0, signature_idx, 0, 0, 0},
+		{"SIG ", signature_start, signature_end, 0, 0, 0, 0, 0}
+	};
+
+	return verify_app(index, toc_entries);
+}
+#endif
+
 static int loader_main(int argc, char *argv[])
 {
 	ssize_t image_sz = 0;
@@ -812,18 +832,16 @@ static int loader_main(int argc, char *argv[])
 	if (sdcard_mounted) {
 		uboot_size = load_sdcard_images("/sdcard/boot/"UBOOT_BINARY, CONFIG_MPFS_HART3_ENTRYPOINT);
 		if (uboot_size > 0) {
+                        u_boot_loaded = true;
 #ifdef CONFIG_SIGNED_UBOOT
-			if (verify_boot_image(0, (void *)CONFIG_MPFS_HART3_ENTRYPOINT, uboot_size)) {
-				u_boot_loaded = true;
 
-			} else {
+			if (!verify_image((void *)CONFIG_MPFS_HART3_ENTRYPOINT, uboot_size, UBOOT_SIGNATURE_SIZE)) {
 				u_boot_loaded = false;
 				/* Wipe the memory */
 				memset((void *)CONFIG_MPFS_HART3_ENTRYPOINT, 0, uboot_size);
 				_alert("u-boot Authentication Failed\n");
 			}
 #endif
-		    	u_boot_loaded = true;
 
 		} else {
 			_alert("u-boot loading failed\n");

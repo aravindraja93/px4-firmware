@@ -55,8 +55,6 @@ bool verify_app(uint16_t idx, const image_toc_entry_t *toc_entries);
 
 bool decrypt_app(uint16_t idx, const image_toc_entry_t *toc_entries);
 
-bool verify_boot_image(uint8_t key_index, void *boot_image, size_t image_len);
-
 #else
 
 # if defined(BOOTLOADER_USE_TOC)
@@ -72,8 +70,6 @@ static inline bool verify_app(uint16_t idx, const image_toc_entry_t *toc_entries
 /* No security, decrypting is not possible */
 
 static inline bool decrypt_app(uint16_t idx, const image_toc_entry_t *toc_entries) {return false;}
-
-static inline bool verify_boot_image(uint8_t key_index, void *boot_image, size_t image_len) {return true;}
 
 # endif
 
