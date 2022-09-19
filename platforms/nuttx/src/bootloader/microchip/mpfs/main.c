@@ -87,10 +87,12 @@ static bool sdcard_mounted;
 #endif
 
 
-#if BOOTLOADER_VERIFY_UBOOT
+#ifdef CONFIG_SIGNED_UBOOT
+
 #define UBOOT_BINARY		"u-boot_signed.bin"
 #define UBOOT_SIGNATURE_SIZE	64
 #else
+
 #define UBOOT_BINARY		"u-boot.bin"
 #endif
 
@@ -748,7 +750,7 @@ static size_t get_image_size(void)
 }
 #endif
 
-#if BOOTLOADER_VERIFY_UBOOT
+#ifdef CONFIG_SIGNED_UBOOT
 bool verify_image(void *image_start, size_t image_size, size_t signature_size)
 {
 	uint8_t signature_idx = 1;
@@ -831,7 +833,7 @@ static int loader_main(int argc, char *argv[])
 		uboot_size = load_sdcard_images("/sdcard/boot/"UBOOT_BINARY, CONFIG_MPFS_HART3_ENTRYPOINT);
 		if (uboot_size > 0) {
                         u_boot_loaded = true;
-#if BOOTLOADER_VERIFY_UBOOT
+#ifdef CONFIG_SIGNED_UBOOT
 
 			if (!verify_image((void *)CONFIG_MPFS_HART3_ENTRYPOINT, uboot_size, UBOOT_SIGNATURE_SIZE)) {
 				u_boot_loaded = false;
